@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "niftygex"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy==2.1.3",
+    "polars==1.22.0",
+    "pyarrow==18.1.0",
+    "pyyaml==6.0.2",
+    "scipy==1.14.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.4", "ruff==0.9.7"]
+eval = ["scikit-learn==1.5.2", "statsmodels==0.14.4", "lightgbm==4.5.0", "pandas==2.2.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+where = ["src"]

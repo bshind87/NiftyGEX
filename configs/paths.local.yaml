@@ -1,0 +1,2 @@
+# Local runtime profile. Keep this committed and repository-relative.
+data_root: ./data

@@ -1,0 +1,23 @@
+# Runtime data and outputs
+data/*
+outputs/*
+!data/README.md
+
+# Generated market-data files
+*.parquet
+*.csv
+
+# Machine-specific path profiles
+configs/paths.*.yaml
+!configs/paths.local.yaml
+!configs/paths.example.yaml
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Tool caches and OS files
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.DS_Store

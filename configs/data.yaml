@@ -1,0 +1,126 @@
+date_range:
+  start: 2019-02-01
+  end: 2026-07-03
+timezone: Asia/Kolkata
+session:
+  open: '09:15'          # start label of the first regular bar
+  close: '15:25'         # start label of the last regular bar (75 bars per day)
+  bar_minutes: 5         # a bar labeled t covers [t, t + bar_minutes) and is available at t + bar_minutes
+  bar_label: start
+  eod_oi_bar: '15:25'
+calendar:
+  # Trading days are the union of option and futures dates minus configured holidays.
+  # The calendar is extended by weekday rule so the last observed day has a next trading day.
+  extend_weekdays_after_last_observed: 10
+availability:
+  # Daily sources (EOD OI proxy, participant OI, daily VIX) become available at this time
+  # on the next trading day.
+  next_trading_day_time: '09:15'
+snapshot_grid:
+  t1_expiry_days: ['10:00', '12:00', '14:00']
+  t2_daily: '15:15'
+  t3_daily: '14:00'      # T3 path starts at the 14:00-labeled bar
+lookback:
+  trading_days: 20
+  bars: 1500
+liquidity:
+  require_positive_volume: true
+  moneyness_min: 0.92
+  moneyness_max: 1.08
+forward:
+  near_atm_width: 0.03
+  min_pairs: 2
+  max_residual: 25.0
+  min_volume: 1
+pricing:
+  expiry_time: '15:30'   # time to expiry is measured to this IST time on the expiry date
+  days_per_year: 365.0
+  iv_bounds: [0.00001, 5.0]
+  iv_iterations: 60
+  iv_max_price_error_fraction: 0.02
+gex:
+  max_days_to_expiry: 21   # data maximum: each expiry has at most ~21 calendar days of option history
+  scale_percent_move: 0.01
+  # Whether contracts expiring on the snapshot's trade date enter total GEX, per target snapshot grid.
+  # T2 excludes them; T1 (expiry-day pinning) keeps them. T3 keeps them pending confirmation.
+  same_day_expiry_in_total_gex:
+    t1: true
+    t2: false
+    t3: true            # confirmed 2026-09-30
+  # open_interest is reported in index units (OI is always a multiple of the lot size), so
+  # GEX = gamma x OI x spot^2 x scale_percent_move with no lot-size multiplier.
+  open_interest_unit: index_units
+  inferred:
+    # Dealer proxy for the inferred sign: this participant's previous-trading-day index-option net
+    # position sign per right (long -> +1 gamma, short -> -1). Missing participant days stay NaN.
+    dealer_client_type: Pro
+snapshot:
+  # GEX chain at snapshot T: latest eligible row per contract with T - max_staleness < available_at <= T.
+  # OI-only levels (walls, max pain) use the latest row of the day with available_at <= T.
+  max_staleness_minutes: 15
+features:
+  # OI-change features use strikes within this fraction of the snapshot forward.
+  near_money_width: 0.02
+  skew_abs_delta: 0.25
+  participant_client_types: [Pro, FII, Client]
+  # Causal trailing RV feature: futures RV over the trading days ending the previous trading day.
+  trailing_rv_days: 20
+  trailing_rv_min_days: 15
+  tokens:
+    # Strike GEX in token rows is reported in crore rupees.
+    gex_unit_rupees: 1.0e7
+targets:
+  trading_days_per_year: 252
+  t2:
+    # Primary RV: front-month futures 5-minute log returns within the day (one contract per day).
+    # Secondary: spot RV. A day's RV needs at least min_bars bars of the source.
+    min_bars: 70
+    trailing_days: 20
+    trailing_min_days: 15
+    # Tercile cutoffs for a T2 snapshot on day d use only ratios whose target day is < d (known before the
+    # 15:15 snapshot; expanding window).
+    cutoff_min_history: 250
+  t3:
+    # Path starts at the 14:00-labeled bar (the snapshot spot is the close available at 14:00) and ends at
+    # the close of the 15:25-labeled bar (available 15:30). Truncated sessions are excluded.
+    path_end_label: '15:25'
+    min_path_bars: 16      # of 18 bars labeled 14:00..15:25
+validation:
+  # ATM IV of the longest available expiry at the T2 snapshot vs the same day's India VIX close.
+  atm_iv_vs_vix_target: t2
+levels:
+  flip_grid_points: 321  # hypothetical spot levels spanning the chain's strike range
+risk_free_rate: 0.0
+quality:
+  # A day has missing option OI when fewer than this share of traded option rows report open_interest > 0
+  # (the source records missing OI as 0; e.g. 2022-01-03..2022-04-11 have no option OI at all).
+  min_option_oi_share: 0.5
+spot_outliers:
+  # Null a spot bar when |spot close / front-month futures close - 1| exceeds this (close-to-close).
+  max_relative_deviation_from_future: 0.03
+basis:
+  # Within-day jumps in basis (futures close - spot close), measured in basis points of spot.
+  # Set to the 99.9th percentile (24.02 bps) of the aligned (spot_vs_futures best_lag 0) within-day
+  # |basis step| distribution in outputs/reports/basis_jumps.json after the 2026-09-30 relabel.
+  jump_threshold_bps: 24.02
+  # A jump is a reverting spike when the basis returns within revert_tolerance_fraction * threshold
+  # of its pre-jump level within revert_max_bars valid bars; spike bars are flagged basis_quality=bad.
+  revert_max_bars: 3
+  revert_tolerance_fraction: 0.5
+  # Noise check at each end-labeled window boundary: median |basis step| over this many trading days on
+  # each side; the two sides are "similar" when the larger median is at most similar_ratio_max x the smaller.
+  boundary_check:
+    trading_days: 20
+    similar_ratio_max: 1.25
+vix:
+  daily_lag_trading_days: 1
+  allow_missing: true
+partitioning:
+  frequency: month
+  lookback_from_prior_partitions: true
+optional_sources:
+  bhavcopy: true
+  official_closes: true
+  intraday_vix: true
+futures:
+  roll_rule: nearest_expiry_not_expired

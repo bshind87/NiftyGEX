@@ -1,0 +1,20 @@
+# Copy to configs/paths.local.yaml or configs/paths.hpc.yaml and adjust values.
+# Relative paths resolve from the repository root.
+data_root: ./data
+outputs_root: ./outputs
+raw_source_root: null
+legacy_source_root: null
+
+raw:
+  options: data/raw/options
+  futures: data/raw/futures
+  equity: data/raw/equity
+  india_vix: data/raw/india_vix
+  fiidii: data/raw/fiidii
+  official_closes: data/raw/official_closes
+  bhavcopy: data/raw/bhavcopy
+
+curated_root: data/curated
+greeks_root: data/greeks
+features_root: data/features
+targets_root: data/targets

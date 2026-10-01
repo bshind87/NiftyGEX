@@ -1,0 +1,1 @@
+"""Forward-looking target calculations."""

@@ -1,0 +1,103 @@
+# Manually maintained market-rule regimes.
+
+# Index units per contract, keyed by contract expiry date. Inferred from the data: option open_interest is in
+# index units, so >= 99% of positive OI values per expiry are multiples of the lot (checked by
+# tests/test_stage_contracts.py and the validation report). Effective dates are the first expiry observed
+# with the new lot; verify against NSE circulars.
+lot_sizes:
+  - {effective_from_expiry: 2019-02-14, units_per_lot: 75}
+  - {effective_from_expiry: 2021-07-29, units_per_lot: 50}
+  - {effective_from_expiry: 2024-05-02, units_per_lot: 25}
+  - {effective_from_expiry: 2025-01-02, units_per_lot: 75}
+  - {effective_from_expiry: 2026-01-06, units_per_lot: 65}
+
+# Contracts listed before a lot change whose OI mixes old- and new-lot positions. units_per_lot is the
+# dominant lot; oi_divisor (gcd of the two lots) divides >= 99% of OI values.
+lot_size_exceptions:
+  - {expiry: 2021-09-30, units_per_lot: 50, oi_divisor: 25, reason: monthly listed before the 75 -> 50 change}
+  - {expiry: 2021-12-30, units_per_lot: 50, oi_divisor: 25, reason: quarterly listed before the 75 -> 50 change}
+  - {expiry: 2025-01-30, units_per_lot: 25, oi_divisor: 25, reason: monthly listed before the 25 -> 75 change keeps lot 25}
+  - {expiry: 2025-03-27, units_per_lot: 75, oi_divisor: 25, reason: quarterly listed before the 25 -> 75 change}
+  - {expiry: 2025-06-26, units_per_lot: 75, oi_divisor: 25, reason: quarterly listed before the 25 -> 75 change}
+  - {expiry: 2025-12-30, units_per_lot: 75, oi_divisor: 25, reason: long-dated contract listed before the 25 -> 75 change}
+  - {expiry: 2026-03-30, units_per_lot: 65, oi_divisor: 5, reason: quarterly listed before the 75 -> 65 change}
+  - {expiry: 2026-06-30, units_per_lot: 65, oi_divisor: 5, reason: quarterly listed before the 75 -> 65 change}
+
+# Regime markers used to split results before/after structural changes.
+regime_markers:
+  - name: weekly_expiry_rationalisation
+    date: 2024-11-20
+    note: >-
+      SEBI F&O measures: one weekly-expiry benchmark index per exchange (NSE keeps NIFTY weeklies; other
+      index weeklies end) and a higher minimum contract value (new NIFTY contracts move from lot 25 to 75).
+      Participant index-option OI covers all index options, so its mix changes at this date.
+    status: VERIFY_DATE_AGAINST_NSE_CIRCULAR
+
+# Regular weekly cadence observed in the copied option filenames.
+expiry_weekdays:
+  - effective_from: 2019-02-01
+    weekday: Thursday
+  - effective_from: 2025-09-02
+    weekday: Tuesday
+
+# Holiday-shifted expiry dates observed in the raw filenames; they are not regular cadence changes.
+expiry_exceptions:
+  - expiry_date: 2024-04-10
+    weekday: Wednesday
+    reason: Holiday-shifted expiry
+  - expiry_date: 2025-10-20
+    weekday: Monday
+    reason: Holiday-shifted expiry
+
+# Source label conventions. Options and futures are start-labeled throughout. Rows dated inside a window
+# listed here are relabeled from end labels to start labels (label - bar_minutes) BEFORE session filtering,
+# so the real last regular bar (end label 15:30 -> start label 15:25) is kept and the end-labeled 09:15
+# pre-open bar (-> 09:10) is dropped. Approved 2026-09-30; evidence: outputs/reports/spot_label_alignment.json.
+end_labeled_windows:
+  spot:
+    - {start: 2020-12-08, end: 2026-04-23}
+  vix_intraday:
+    - {start: 2020-12-08, end: 2026-04-23}
+
+risk_free_rate:
+  default: 0.0
+  by_date: []
+
+# Intentionally empty for now (confirmed 2026-09-30); the calendar extension past the last observed
+# date therefore skips weekends only.
+holidays: []
+stt_changes: []
+
+non_regular_sessions:
+  - {date: 2019-10-27, reason: Muhurat Sunday session, status: TO_CONFIRM}
+  - {date: 2020-02-01, reason: Budget Saturday session, status: TO_CONFIRM}
+  - {date: 2020-11-14, reason: Muhurat Saturday session, status: TO_CONFIRM}
+  - {date: 2021-11-04, reason: Muhurat session, status: TO_CONFIRM}
+  - {date: 2022-10-24, reason: Muhurat session, status: TO_CONFIRM}
+  - {date: 2023-11-12, reason: Muhurat Sunday session, status: TO_CONFIRM}
+  - {date: 2024-01-20, reason: Saturday special session, status: TO_CONFIRM}
+  - {date: 2024-03-02, reason: Saturday special session, status: TO_CONFIRM}
+  - {date: 2024-05-18, reason: Saturday special session, status: TO_CONFIRM}
+  - {date: 2024-11-01, reason: Muhurat session, status: TO_CONFIRM}
+  - {date: 2024-12-14, reason: Saturday special session, status: TO_CONFIRM}
+  - {date: 2025-02-01, reason: Budget Saturday session, status: TO_CONFIRM}
+  - {date: 2025-10-21, reason: Muhurat session, status: TO_CONFIRM}
+  - {date: 2026-02-01, reason: Sunday special session, status: TO_CONFIRM}
+
+truncated_sessions:
+  - {date: 2020-03-13, reason: Circuit-halt candidate, status: TO_CONFIRM}
+  - {date: 2020-03-23, reason: Circuit-halt candidate, status: TO_CONFIRM}
+  - {date: 2021-02-24, reason: DR/outage candidate, status: TO_CONFIRM}
+
+data_quality_flags:
+  - {date: 2019-07-30, reason: Option-source missing bars, status: TO_CONFIRM}
+  - {date: 2020-04-20, reason: Missing spot bars, status: TO_CONFIRM}
+  - {date: 2020-05-04, reason: Missing spot bars, status: TO_CONFIRM}
+  - {date: 2021-01-11, reason: Missing option/futures bars, status: TO_CONFIRM}
+  - {date: 2021-10-18, reason: Missing spot bars, status: TO_CONFIRM}
+  - {date: 2022-02-09, reason: Missing spot bars, status: TO_CONFIRM}
+  - {date: 2022-03-25, reason: Missing spot bars, status: TO_CONFIRM}
+  - {date: 2024-10-03, reason: Missing option/futures bars, status: TO_CONFIRM}
+  - {date: 2025-10-06, reason: Missing futures bars, status: TO_CONFIRM}
+  - {date: 2025-11-18, reason: Missing market bars, status: TO_CONFIRM}
+  - {date: 2026-02-24, reason: Missing option/futures bars, status: TO_CONFIRM}

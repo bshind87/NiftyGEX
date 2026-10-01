@@ -1,0 +1,92 @@
+# Evaluation-layer configuration (src/niftygex_eval). Separate from the data-layer config hash: changing it
+# never invalidates data stages. Every results-store run records both hashes.
+
+harness:
+  # Walks are aligned to weekly expiry cycles: a trading day belongs to the cycle of the first option expiry
+  # on or after it. Training is expanding (train_window_cycles: null) or rolling, followed by an embargo of
+  # embargo_cycles cycles, then test_cycles test cycles. Rows are never shuffled.
+  test_cycles: 13
+  embargo_cycles: 1
+  min_train_cycles: 52
+  train_window_cycles: null
+
+results_store: outputs/results
+
+stage_a:
+  target: t2
+  outcome: rv_ratio_trailing
+  controls: [vix_previous_close]
+  # Robustness controls; rv_ratio_trailing_lagged is the previous T2 row's target (today's RV ratio), used only
+  # when that row's target day is the snapshot day. It resolves at today's close, 15 minutes after the
+  # 15:15 snapshot: acceptable as a regression control, not as a predictive feature.
+  robustness_controls: [vix_previous_close, atm_iv, days_to_expiry, is_expiry_day, rv_ratio_trailing_lagged]
+  # Joint spec: magnitude (normalized absolute GEX) plus the total-GEX sign under these conventions.
+  sign_conventions: [naive, inferred]
+  hac_maxlags: 5
+  # Primary spec divides each total GEX by the trailing mean of absolute total GEX over this many prior T2
+  # snapshots (inclusive, causal), removing the strong OI growth trend; the level spec (rupees x 1e-12,
+  # i.e. lakh crore) is reported as a robustness check.
+  normalization_window: 250
+  normalization_min_periods: 60
+  conventions: [naive, absolute, inferred]
+
+stage_b:
+  target: t2
+  label: t2_label
+  classes: [low, mid, high]
+  # Features come from outputs/reports/features_report.json (feature_columns) minus this list.
+  exclude_features: [spot]   # the index level is a trend proxy, not a positioning feature
+  baselines:
+    vix_only: [vix_previous_close]
+  logistic: {C: 1.0, max_iter: 5000}
+  lightgbm:
+    n_estimators: 300
+    learning_rate: 0.03
+    num_leaves: 15
+    min_child_samples: 30
+    colsample_bytree: 0.8
+    subsample: 1.0
+    reg_lambda: 1.0
+    random_state: 7
+    deterministic: true
+    n_jobs: 1
+    verbose: -1
+  calibration_bins: 10
+  # Ablation: LightGBM without any GEX, level, positioning, or participant features.
+  no_gex_features: [days_to_expiry, nearest_expiry_weekday, is_expiry_day, atm_iv, skew_25d, term_slope,
+                    rv_intraday_so_far_annualized, rv_trailing_20d_annualized_prev, vix_previous_close]
+  # Three-way ablation (all tuned + Platt). C adds normalized GEX (total / causal trailing mean absolute GEX,
+  # as in Stage A) rather than raw rupee totals, which trend with OI growth. Chain-OI flow (OI change, PCR),
+  # basis, lot size and the regime flag are in none of A/B/C.
+  feature_sets:
+    A: [days_to_expiry, nearest_expiry_weekday, is_expiry_day, atm_iv, skew_25d, term_slope,
+        rv_intraday_so_far_annualized, rv_trailing_20d_annualized_prev, vix_previous_close]
+    B_adds: [participant_pro_net_index_calls, participant_pro_net_index_puts, participant_fii_net_index_calls,
+             participant_fii_net_index_puts, participant_client_net_index_calls, participant_client_net_index_puts]
+    C_adds: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_concentration_hhi, max_gex_strike_distance_pct,
+             call_wall_distance_pct, put_wall_distance_pct, max_pain_distance_pct, flip_naive_distance_pct,
+             has_flip, has_inferred_flip]
+  # Continuous T2: tuned LightGBM regression of log(rv_ratio_trailing); parameters chosen by validation MSE on
+  # the same inner split, then refit on the full training window.
+  regression:
+    outcome: rv_ratio_trailing
+    transform: log
+  tuning:
+    # Inside each walk's training window: inner-train, inner_embargo_cycles, then the last
+    # inner_validation_cycles as validation (time-ordered, purged). Parameters are chosen by the selection
+    # metric on validation; calibrators are fitted on the same validation predictions.
+    inner_validation_cycles: 26
+    inner_embargo_cycles: 1
+    selection_metric: log_loss
+    grid:
+      min_child_samples: [30, 60, 120]
+      max_depth: [3, 5, -1]
+      reg_lambda: [1.0, 10.0, 50.0]
+    calibrators: [platt, isotonic]
+
+t3_placebo:
+  # Placebo pseudo-strikes at the same distance from the 14:00 spot as the real max-GEX strike, on a random
+  # side (draws x days); the mirror strike (opposite side, same distance) is reported as a deterministic placebo.
+  draws: 2000
+  seed: 20261001
+  distance_buckets: 3   # equal-count buckets of start distance (% of spot)
