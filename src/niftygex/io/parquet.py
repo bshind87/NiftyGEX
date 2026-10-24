@@ -14,6 +14,7 @@ import polars as pl
 
 from niftygex import __version__
 from niftygex.config import config_hash
+from niftygex.io.provenance import git_provenance
 
 
 def file_sha256(path: Path) -> str:
@@ -119,6 +120,7 @@ def write_manifest(
         "package_version": __version__,
         "profile": config["profile"],
         "config_hash": config_hash(config),
+        **git_provenance(),
         "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "upstream_config_hashes": upstream or {},
         "inputs": inputs,

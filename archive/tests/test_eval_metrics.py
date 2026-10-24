@@ -100,3 +100,57 @@ def test_placebo_detects_attraction_and_not_noise() -> None:
     assert pulled["hit_rate_actual"] > pulled["hit_rate_mirror"] + 0.1
     assert pulled["placebo_random_side"]["p_value_actual_ge_placebo"] < 0.01
     assert pulled["actual_vs_mirror_sign_test"]["p_value_two_sided"] < 1e-6
+
+
+def test_tree_shap_is_additive_to_raw_margin() -> None:
+    from lightgbm import LGBMClassifier
+
+    from niftygex_eval.stage_b import shap_summary, tree_shap
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(300, 3))
+    y = (x[:, 0] > 0).astype(int) + (x[:, 1] > 0.5).astype(int)
+    rows = pl.DataFrame({"snapshot_at": np.arange(300), "a": x[:, 0], "b": x[:, 1], "c": x[:, 2]})
+    model = LGBMClassifier(n_estimators=20, verbose=-1, random_state=0).fit(x, y)
+    shap = tree_shap(model, rows, ["a", "b", "c"], CLASSES, walk_id=0)
+    raw = model.predict(x, raw_score=True)
+    contrib = np.asarray(model.predict(x, pred_contrib=True))
+    bias = contrib[:, 3::4]
+    for k, name in enumerate(CLASSES):
+        total = shap.filter(pl.col("output") == name).group_by("snapshot_at").agg(pl.col("shap").sum()).sort("snapshot_at")["shap"].to_numpy()
+        assert np.allclose(total + bias[:, k], raw[:, k])
+    summary = shap_summary(shap).filter(pl.col("output") == "all_outputs")
+    assert summary["feature"][0] in ("a", "b") and summary["feature"][-1] == "c"
+
+
+def test_listed_strike_comparators_and_snapped_mirror() -> None:
+    from niftygex_eval.t3_listed import comparators, compare, strike_ranks
+
+    snapshot = 1
+    chain = pl.DataFrame({
+        "snapshot_at": [snapshot] * 6, "strike_price": [21900.0, 21950.0, 22000.0, 22050.0, 22100.0, 22150.0],
+        "gex_absolute": [5.0, 3.0, 9.0, 4.0, 2.0, 1.0], "spot": [22010.0] * 6,
+    })
+    ranks = strike_ranks(chain)
+    assert ranks.filter(pl.col("gex_rank") == 1)["strike_price"].item() == 22000.0
+    days = pl.DataFrame({"snapshot_at": [snapshot], "trade_date": [1], "t3_start_price": [22010.0], "t3_end_price": [22003.0], "t3_strike": [22000.0]})
+    frame = comparators(days, ranks).row(0, named=True)
+    # Ranks 2-5 are 21900 (110 away), 22050 (40), 21950 (60), 22100 (90): 22050 best matches the 10-point distance.
+    assert frame["matched_rank_strike"] == 22050.0
+    # Mirror of 22000 through 22010 is 22020, snapped to the listed grid -> 22000 (the max-GEX strike itself).
+    assert frame["snapped_mirror_strike"] == 22000.0
+    result = compare(comparators(days, ranks), "snapped_mirror_strike")
+    assert result["days"] == 0 and result["excluded_days"] == 1
+    matched = compare(comparators(days, ranks), "matched_rank_strike")
+    assert matched["hit_rate_max_gex"] == 1.0 and matched["hit_rate_comparator"] == 0.0
+
+
+def test_holm_adjustment_known_values() -> None:
+    from niftygex_eval.multiple_testing import adjust_family, holm
+
+    with_missing = holm([0.01, 0.04, 0.03, None])
+    assert with_missing[:3] == pytest.approx([0.03, 0.06, 0.06]) and with_missing[3] is None
+    adjusted = holm([0.01, 0.04, 0.03])
+    assert adjusted == pytest.approx([0.03, 0.06, 0.06])
+    family = adjust_family("F", "x", [{"test": "a", "p": 0.01}, {"test": "b", "p": 0.04}, {"test": "c", "p": 0.03}], 0.05)
+    assert [m["reject_holm"] for m in family["members"]] == [True, False, False]

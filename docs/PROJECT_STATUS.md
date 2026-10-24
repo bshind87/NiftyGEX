@@ -1,156 +1,172 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-10-01
-**Data config hash:** `ad5fca5e441f` (all stage manifests in `outputs/manifests/`)
-**Eval config hash:** `100d11eee4fc` (all latest runs in `outputs/results/index.jsonl`)
-**Tests:** 104 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
-**Next milestone:** Proposal presentation, 2026-10-08
+**Last updated:** 2026-10-16
+**Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
+**Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
+**Eval config hash:** `ce2e671c1e4c` (forecast runs in `outputs/results/index.jsonl`)
+**Code:** git commit `b26d683` plus uncommitted changes, so manifests and runs record `git_dirty = true`. You make commits manually.
+**Tests:** 109 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Next milestone:** progress update, 2026-10-29
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
 
-## Milestones
+## Next session
+
+Pick up here, in order:
+
+1. **Commit your work (you).** Nothing since `b26d683` is committed:
+   - the forecasting path;
+   - the HAR features;
+   - the T1/T3 removal and the archive;
+   - the token history;
+   - the docs.
+2. **D2: volatility-state vector.** IV, RV and calendar, plus total GEX, for the model head; the next-expiry summary is optional.
+3. **E1: PyTorch**, pinned in `env/environment.yml`.
+4. **E2: `src/niftygex_eval/nn/`** behind the `Forecaster` interface:
+   - a dataset with a padding mask and the last-L slicing by `lag`;
+   - modules;
+   - the DeepSets, Attention and AttentionGRU models;
+   - the trainer.
+5. **E3: sanity checks:**
+   - a tiny batch overfits;
+   - shuffling strike order leaves the output unchanged;
+   - padding leaves the output unchanged;
+   - the model has about 100k parameters.
+6. **Decide: slide 11 charts at 15:15** for the Oct 29 progress slides (see Open questions).
+
+## Milestones (proposal slide 16)
 
 | Date | Milestone | Status |
 |---|---|---|
-| 2026-10-08 | Proposal presentation | ⏳ Pending. No slides in the repo; the proposal needs updates first (P8.7) |
-| 2026-10-29 | Progress update | ⏳ Pending. Data layer, GEX library, aggregate features, Stage A and LightGBM baseline exist already (P1–P5) |
-| 2026-12-03 / 12-10 | Final presentation | ⏳ Pending |
-| 2026-12-17 | Code and documentation | ⏳ Pending |
+| 2026-10-08 | Proposal | ✅ Presented with deck v9 |
+| 2026-10-29 | Data pipeline, first baselines | 🔄 The pipeline and ladder steps 0–3 are done; the slides are not yet drafted |
+| November | Model, switch-off tests, rule-change tests | ⏳ |
+| 2026-12-03 / 12-10, 12-17 | Final presentation, code and report | ⏳ |
+
+## Proposal map
+
+| Proposal item | Status | Evidence |
+|---|---|---|
+| Step 0: historical mean / persistence | ✅ | runs `92f3da4081b08fc6`, `d19d4490d9b024f4` |
+| Step 1: HAR-RV | ✅ | run `c258929b5da6a6e3` |
+| Step 2: HAR + GEX | ✅ | run `d1bfee2ee7b640da` |
+| Step 3: tuned LightGBM on ~40 summaries | ✅ | run `bd11da0a4d1536ff` |
+| Step 4: DeepSets | ⏳ | Needs D1–D3 and E1–E3 |
+| Step 5: single-snapshot self-attention | ⏳ | Needs E1–E3 |
+| Step 6: attention + GRU (our model) | ⏳ | Needs D1–D3 (token history) and E1–E3 |
+| RQ1: does reading every contract predict better? | ⏳ | Test pre-registered in `configs/eval.yaml` (`multiple_testing.RQ1`) |
+| RQ2: why does it win? | ⏳ | Pre-registered (`RQ2`) |
+| RQ3: does it survive rule changes? | ⏳ | Pre-registered (`RQ3`). The before/after split already runs for the classical ladder |
+| Attention maps | ⏳ | After step 6 |
 
 ## Tasks
 
-### P0 Setup
+### A. Data pipeline ✅
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P0.1 | Repo skeleton and config profiles | ✅ | Data layer in `src/niftygex`, evaluation in `src/niftygex_eval`. Paths come from profiles plus `NIFTYGEX_PROFILE` / `NIFTYGEX_DATA_ROOT` | `configs/`, `tests/test_config.py` | — |
-| P0.2 | Pinned environment | ✅ | Python 3.11.11 and Polars 1.22, plus eval dependencies (scikit-learn, statsmodels, LightGBM; pandas pinned at 2.2.3) | `env/environment.yml`, `pyproject.toml` | — |
-| P0.3 | CLAUDE.md, README, PROVENANCE | ✅ | Conventions, run order, and adapted-file provenance with the co-development note | `CLAUDE.md`, `README.md`, `PROVENANCE.md` | Keep in sync at each checkpoint |
-| P0.4 | Manifests with config hash | ✅ | Every stage writes a manifest; downstream stages refuse a mismatched upstream hash | `outputs/manifests/*.json` (11) | — |
-| P0.5 | .gitignore and data layout | ✅ | `data/` and `outputs/` are ignored; layout documented | `.gitignore`, `data/README.md` | — |
-| P0.6 | Version control | ⏳ | The project folder is **not a git repository**, so nothing is versioned yet | — | Decide: initialize git (see Open questions) |
-| P0.7 | HPC profile and sync/cleanup scripts | ⏳ | In the plan but never created; everything runs locally | — | Decide if HPC is still needed |
-| P0.8 | Partitioned stage runs and lookback-equivalence test | ⏳ | Stages run on the full range only; the planned "one month = slice of the full run" test does not exist | — | Needed only if HPC or partitioned runs come back |
+| ID | Task | Status | Summary | Outputs |
+|---|---|---|---|---|
+| A1 | Raw import, cleaning, calendar | ✅ | 881 files with checksums; start-labeled 09:15–15:25 bars with `available_at`; spot and VIX relabel (2020-12-08 to 2026-04-23); one futures contract per day | `cleaning_report.json`, `spot_label_alignment.json` |
+| A2 | Pricing and GEX | ✅ | Parity forward; OTM-leg IV; Black-76 gamma and delta; GEX under naive, absolute and inferred conventions (OI in index units, 21-day horizon); walls, max pain, flip | `forward_report.json`, `greeks_report.json`, `gex_report.json`, `levels_report.json` |
+| A3 | Aggregate features | ✅ | 1,824 snapshot rows (one per trading day) × 40 columns, now including the HAR-RV terms (`rv_trailing_{1,5,20}d_annualized_prev`, all through the previous day) | `features_report.json` |
+| A4 | Tokens | ✅ | **Token history:**
+- 8,738,126 tokens over 72 snapshots per day (09:20–15:15, with `lag` 0 = 15:15), from each day's nearest included expiry that has data.
+- A median of 69 per snapshot and 71 at 15:15; 1,814 of 1,824 prediction snapshots have tokens.
+- 1,804 days have a full 72-snapshot history; the gaps are no-option days, a truncated session and bars ending early.
+- At lag 0 the tokens match the GEX chain.
+- Built in 22 s with 1.4 GB peak memory; 505 MB on disk. | `tokens_report.json`, `docs/findings_data.md` |
+| A5 | Target | ✅ | log(next-day futures RV / trailing 20-day mean) at 15:15: 1,824 rows, 1,549 tercile-labeled. The data layer builds only this target (`selection.TARGETS = ("t2",)`); T1 and T3 were removed on 2026-10-14 | `targets_t2_report.json` |
+| A6 | Validation and leakage | ✅ | Parity, IV agreement, ATM IV vs VIX (0.95); all timestamp and leakage checks pass | `docs/validation_report.md` |
+| A7 | Missing-data report | ✅ | Every known gap and its handling (see Data gaps) | `outputs/reports/missing_data.md` |
+| A8 | Raw sample for sharing | ✅ | May–Jul 2022, raw layout, rows unchanged | `data/sample_data/` |
 
-### P1 Data
+### B. Harness and forecasting path ✅
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P1.1 | Raw import | ✅ | 881 legacy files copied with checksums, re-verified as identical. The import refuses to overwrite raw files | `outputs/manifests/raw_import_manifest.json` | — |
-| P1.2 | Session, calendar, availability | ✅ | Bars are start-labeled, labels 09:15–15:25 (75 bars). Every row has `available_at`. Daily sources become available at 09:15 on the next trading day. The calendar has 1,824 days | `cleaning_report.json`, `tests/test_calendar.py` | — |
-| P1.3 | Spot and intraday VIX relabel | ✅ | The end-labeled window (2020-12-08 to 2026-04-23) is shifted to start labels; 1,814 of 1,815 days now align. Some noise near the window boundaries remains unexplained (it affects spot RV only) | `spot_label_alignment.json` | Open question on the boundary noise |
-| P1.4 | Futures roll | ✅ | One contract per day (nearest not yet expired), 89 contract changes, never an intraday switch | `cleaning_report.json` | — |
-| P1.5 | Dedup rules | ✅ | Options keep the higher-volume row; futures keep the later-dated file, then higher volume; conflicting participant-OI rows are dropped. All option and futures duplicates are within a single file | `duplicate_conflicts.json`, `docs/schema.md` | — |
-| P1.6 | Special sessions | ✅ | 14 non-regular sessions dropped; 3 truncated sessions flagged and excluded from T3 only | `configs/regimes.yaml` | Dates and reasons still `TO_CONFIRM` (P8.6) |
-| P1.7 | Bad-print filter | ✅ | Close-to-close check against the future at 3%; 1 spot bar nulled (2021-10-18) | `spot_outliers.json` | — |
-| P1.8 | Missing-data report | ✅ | Every known gap with how it is handled (see Data gaps) | `outputs/reports/missing_data.md`, `scripts/report_missing_data.py` | Rerun after any data change |
-| P1.9 | Basis and jump classification | ✅ | Basis per bar. Jump threshold 24.02 bps (99.9th percentile of the aligned distribution); 115 jumps, 89 roll transitions | `basis_jumps.json` | — |
-| P1.10 | Lot-size schedule | ✅ | Lot sizes inferred from OI divisibility, by contract expiry, with 8 mixed-lot exceptions; all 377 expiries with OI pass | `regimes.yaml`, `validation_report.json` | Verify against NSE circulars (P8.6) |
+| ID | Task | Status | Summary | Outputs |
+|---|---|---|---|---|
+| B1 | Walk-forward harness | ✅ | Expiry cycles, 52-cycle minimum training, 1-cycle embargo, 13-cycle test blocks, label purge, `check_split`; **26 walks** for the forecasting target | `src/niftygex_eval/harness.py` |
+| B2 | Forecaster interface and runner | ✅ | `tune(train, valid)` on the inner split, `fit(train)`, `predict(test)`; the same rows for every model | `src/niftygex_eval/forecast/` |
+| B3 | Scores and comparisons | ✅ | IC (primary), RMSE, QLIKE, R² vs HAR; paired per-walk test with 95% CI, walks won, Diebold–Mariano, before/after split | `forecast/metrics.py`, `forecast/compare.py` |
+| B4 | Harness tests | ✅ | Oracle IC = 1, random IC ≈ 0, tuning and fitting never see test days, QLIKE, DM | `tests/test_forecast.py` |
+| B5 | Pre-registration | ✅ | RQ1 (intersection–union vs every rung), RQ2 and RQ3 (Holm) written before any neural run | `configs/eval.yaml` |
 
-### P2 Pricing and exposure
+### C. Classical ladder, steps 0–3 ✅
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P2.1 | Forward | ✅ | Median near-ATM put-call parity forward; 398,962 good, 11,794 with too few pairs, 62 with high residuals; median residual 0.85 points | `forward_report.json` | — |
-| P2.2 | OTM-leg IV | ✅ | Both legs of a strike take the IV of the out-of-the-money leg; 0 below-intrinsic legs remain; 99.5% of legs solve | `forward_report.json` | — |
-| P2.3 | Greeks | ✅ | Black-76 gamma and delta, only where time to expiry is positive. The max-gamma strike is within one strike of the forward 91.8% of the time (nearest expiry) | `greeks_report.json` | — |
-| P2.4 | GEX | ✅ | Naive, absolute and inferred conventions; formula Γ × OI (units) × S² × 0.01; 21-day horizon; same-day expiry excluded for T2 | `gex_report.json`, `data/exposure/` | Strike-level OI-change sign refinement deferred |
-| P2.5 | Levels | ✅ | Call and put walls, max pain, max-GEX strike, naive and inferred flip. The naive flip lies inside the strike band in 98.7–99.9% of snapshots | `levels_report.json` | — |
+| ID | Task | Status | Summary | Outputs |
+|---|---|---|---|---|
+| C1 | Ladder runs | ✅ | Five models on 26 walks, same rows | `outputs/results/forecast_comparison.json` |
+| C2 | Report with figures | ✅ | Inputs, scoreboard, ladder IC, IC per walk, before/after, actual vs predicted | `docs/findings_forecast.md`, `outputs/reports/forecast_baselines.json`, `outputs/reports/figures/forecast_*.png` |
 
-### P3 Features and targets
+### D. Token history and model inputs 🔄
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P3.1 | Aggregate features | ✅ | 4,803 snapshot rows, about 39 features, each with source timestamps | `features_report.json`, `data/features/aggregate/` | — |
-| P3.2 | Token features | ✅ | 327,009 token rows from the nearest expiry; median about 70 per snapshot; 98–100% coverage by year | `tokens_report.json`, `data/features/tokens/` | Proposal says 30–50 tokens (P8.7) |
-| P3.3 | T2 targets | ✅ | Next-day futures RV against its trailing 20-day level, as causal terciles; 1,549 of 1,824 labeled (starts 2020) | `targets_t2_report.json` | — |
-| P3.4 | T3 targets | ✅ | Did the index move toward the max-GEX strike between 14:00 and 15:30; 1,736 labeled, 35.8% moved toward it | `targets_t3_report.json` | — |
-| P3.5 | T1 targets | ⛔ | Code not written (`targets/pinning.py` absent); no official NSE closes | — | Write code with fixtures; needs official closes (P8.1) |
+| ID | Task | Status | Summary |
+|---|---|---|---|
+| D1 | Sequence snapshot grid | ✅ | 72 snapshots per day, 09:20–15:15 (`snapshot_grid.sequence_start`, `sequence_step_minutes`); the model slices the last L (12 = one hour by default; 24 and 72 for the window ablation). One expiry per day, so a history never switches contract |
+| D2 | Volatility-state vector | ⏳ | IV, RV and calendar, plus total GEX, so the nearest-expiry tokens are not at a disadvantage to all-expiry GEX |
+| D3 | Leakage test and report | ✅ | Validation and stage-contract checks: every token is available by its snapshot, each sequence snapshot is ≤ its prediction snapshot, one expiry per day, and lag-0 tokens equal the GEX chain. The data report has 4 figures | `docs/findings_data.md`, `outputs/reports/data_overview.json` |
 
-### P4 Validation
+### E. Neural models, steps 4–6 ⏳
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P4.1 | Validation report | ✅ | Parity residuals, call vs put IV agreement, ATM IV vs VIX (correlation 0.95), gamma sanity, lot sizes | `docs/validation_report.md` | — |
-| P4.2 | Leakage checks | ✅ | 21 timestamp and leakage checks with 0 violations, plus 36 leakage tests passing; the stage fails on any violation | `validation_report.json` | Add checks whenever a source is added |
-| P4.3 | Bhavcopy reconciliation | ⛔ | Skipped because no bhavcopy files exist; the 15:25 OI proxy is used instead | — | Needs bhavcopy files |
+| ID | Task | Status | Summary |
+|---|---|---|---|
+| E1 | PyTorch in the pinned env | ⏳ | — |
+| E2 | `src/niftygex_eval/nn/` | ⏳ | `dataset.py` (padding mask, per-walk scaling, missing flags), `modules.py`, `models.py` (DeepSets, Attention, AttentionGRU), `trainer.py` (Huber, AdamW, early stopping, 3–5 seeds) |
+| E3 | Sanity checks | ⏳ | Overfit a tiny batch; shuffling strike order leaves outputs unchanged; padding leaves outputs unchanged; about 100k parameters |
+| E4 | Runs and report | ⏳ | Same runner and report pattern as C |
 
-### P5 Evaluation (classical)
+### F. Research-question tests and write-up ⏳
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P5.1 | Walk-forward harness | ✅ | Expiry-cycle walks: 52-cycle training minimum, 1-cycle embargo, 13-cycle test blocks, label purge, no shuffling; 22 T2 walks | `src/niftygex_eval/harness.py`, `tests/test_harness.py`, `docs/evaluation.md` | — |
-| P5.2 | Stage A (T2) | ✅ | HAC regressions per sign convention, with VIX-only and full controls, plus the joint magnitude + sign specification | run `44938c5d50046769` | — |
-| P5.3 | Stage B (T2) | ✅ | Prior, VIX-only, logistic and LightGBM baselines inside the harness | runs `b0224519dbf4bb65`, `74cdb29de9ae4a0f`, `a2329c25063db2e0`, `a65e7c31d93b5ffe` | — |
-| P5.4 | Calibration | ✅ | Tuned LightGBM + Platt is the reference model: Brier 0.624 against 0.669 for the prior, calibration error 0.042 | run `4b3c1866ae919f77` (also tuned `311c5e0c246bc708`, isotonic `b1d8126d90aa8d35`) | — |
-| P5.5 | Three-way ablation (T2) | ✅ | A, then A + participant (B), then B + GEX and levels (C), all tuned + Platt; C beats B on AUC (t 2.30) | runs `ae3ba795796eb04f`, `adc1b37810565c4c`, `a93ea985003fb756`; `t2_ablation.json` | — |
-| P5.6 | Continuous T2 | ✅ | Tuned LightGBM regression on log RV ratio; mean IC 0.40 / 0.40 / 0.43 for A / B / C | runs `38de43bed6f83cb0`, `ea4fd0cbfba9fd57`, `ba1f5cc65cdd6155` | — |
-| P5.7 | C1/C2 ablation split and SHAP | ⏳ | Not started | — | Define C1/C2 (Open questions) |
-| P5.8 | T3 placebo | ✅ | Matched-distance random-side and mirror placebos; no effect overall, one significant distance bucket | run `3d07783cfd0b9705`; `t3_placebo.json` | — |
-| P5.9 | T3 listed-strike placebo | ⏳ | Proposed to separate GEX from round-number attraction; not started | — | Awaiting go-ahead |
-| P5.10 | Continuous T3 | ⏳ | Not started (`t3_distance_reduction_pct` already exists in the T3 targets) | — | — |
-| P5.11 | Holm correction | ⏳ | Not applied yet; current p-values are unadjusted | — | Define test families (Open questions) |
-| P5.12 | `findings_t2.md` | ✅ | Generated from the results store | `docs/findings_t2.md`, `scripts/write_findings_t2.py` | Regenerate after reruns |
-| P5.13 | `findings_t3.md` | ⏳ | Not written | — | After P5.9–P5.11 |
+| ID | Task | Status | Summary |
+|---|---|---|---|
+| F1 | RQ1 | ⏳ | Attention + GRU against every rung |
+| F2 | RQ2 | ⏳ | DeepSets vs attention; attention vs attention + GRU; window and field-drop ablations (exploratory) |
+| F3 | RQ3 | ⏳ | Per-walk IC gain over LightGBM, after vs before the marker |
+| F4 | Attention maps and case studies | ⏳ | — |
+| F5 | Progress slides (Oct 29) | ⏳ | — |
+| F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
+| F7 | Final report, code and reproducibility pass | ⏳ | A clean-commit end-to-end rerun is still to do |
 
-### P6 Neural models
+### G. Owner and external tasks
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P6.1 | MLP / FT-Transformer on aggregates | ⏳ | Not started | — | Work split with Asad (P8.8) |
-| P6.2 | Attention + GRU on tokens | ⏳ | Not started; the token table is ready | — | — |
-| P6.3 | Ablations (pooling, OI-change removal, strike shuffle, sign conventions) | ⏳ | Not started | — | After P6.2 |
-| P6.4 | Distribution-shift evaluation (RQ4) | ⏳ | Not started; the regime marker and lot-size schedule are available | — | — |
-| P6.5 | Transfer to T1 (RQ5) | ⛔ | Needs T1 | — | P3.5 |
+| ID | Task | Status | Summary |
+|---|---|---|---|
+| G1 | Daily India VIX, Apr–Jul 2026 | ⏳ | The daily file ends 2026-04-06; 60 trading days missing |
+| G2 | From Sunil: missing OI (69 days), the truncated 2022-01-06 expiry, 8 missing spot days | ⏳ | Listed in `missing_data.md` |
+| G3 | Sunil's written permission for code and data | ⏳ | Not on file |
+| G4 | Verify lot sizes, the 2024-11-20 marker and special sessions against NSE circulars | ⏳ | Marked VERIFY in `configs/regimes.yaml` |
+| G5 | Work split with Asad | ⏳ | Not recorded |
 
-### P7 Dashboard and write-up
+### H. Earlier exploratory work (archived 2026-10-14)
 
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P7.1 | Evaluation dashboard | ⏳ | Not started; the results store it will read exists | — | — |
-| P7.2 | Progress-update slides | ⏳ | Not started | — | Due 2026-10-29 |
-| P7.3 | Final report and slides | ⏳ | Not started | — | — |
-| P7.4 | Reproducibility pass | ⏳ | The pipeline reruns end to end and is deterministic (ablation results reproduced exactly), but there is no git history | — | P0.6 |
+Moved to `archive/` (code, tests, configs, docs) and `outputs/archive/` (summaries, figures, T1/T3 outputs); see `archive/README.md`. It ran under data hash `9fc36c738aa5` and is not maintained.
 
-### P8 External and owner tasks
-
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P8.1 | Download official NSE Nifty closes (2019–2026) | ⏳ | Absent (`data/raw/official_closes`) | — | Blocks T1 |
-| P8.2 | Download daily India VIX (Apr–Jul 2026) | ⏳ | Daily VIX ends 2026-04-06; 60 trading days missing | — | — |
-| P8.3 | From Sunil: missing OI (69 days), the truncated 2022-01-06 expiry, the 8 missing spot days | ⏳ | Gaps listed in `missing_data.md` | — | — |
-| P8.4 | Sunil's written permission for code and data | ⏳ | Not on file in the repo | — | — |
-| P8.5 | Fill in PROVENANCE authors | ✅ | Author string set as you specified on 2026-09-30 | `PROVENANCE.md` | — |
-| P8.6 | Verify lot sizes, the 2024-11-20 marker, and special-session dates against NSE circulars | ⏳ | Lot sizes are inferred from data; the marker and special sessions are marked VERIFY / TO_CONFIRM | `configs/regimes.yaml` | — |
-| P8.7 | Update the proposal | ⏳ | Needs: date range, VIX coverage, OTM IV, GEX formula (OI in units), 21-day horizon, futures RV, about 70 tokens, the RQ3 baseline, the disclosure and acknowledgement | `CS7150_Proposal.html` | Before 2026-10-08 |
-| P8.8 | Agree the work split with Asad | ⏳ | Not recorded | — | — |
-
-### P9 Future enhancements (out of scope)
-
-| ID | Task | Status | Summary | Outputs | Next step / blocker |
-|---|---|---|---|---|---|
-| P9.1 | Replay mode | ⏳ | Out of scope | — | — |
-| P9.2 | Live mode | ⏳ | Out of scope | — | — |
-| P9.3 | Straddle backtest | ⏳ | Out of scope | — | — |
+| ID | Analysis | Archived write-up |
+|---|---|---|
+| H1 | Stage A HAC regressions on total GEX (run `7dd46fb5e9d61de7`) | `archive/docs/findings_t2.md` |
+| H2 | Tercile classifiers, calibration, A/B/C/C1/C2 ablation, SHAP | `archive/docs/findings_t2.md` |
+| H3 | T3 max-GEX placebos (matched distance, listed strikes, continuous) | `archive/docs/findings_t3.md` |
+| H4 | Holm families F1–F4 | `archive/configs/eval_exploratory.yaml` |
+| H5 | T1 pinning and T3 drift targets | Removed from the data layer on 2026-10-14: `archive/src/niftygex/`, `archive/docs/schema_t1_t3.md`, last outputs in `outputs/archive/data_targets/` |
 
 ## Key findings so far
 
-- **Stage A, apparent GEX effect.** With only a VIX control, normalized absolute GEX predicts a lower next-day RV ratio: coefficient −0.095, t −5.72, n 1,615 (run `44938c5d50046769`).
-- **Stage A, it was confounding.** With ATM IV, days to expiry, the expiry-day flag and today's RV ratio added, the effect is −0.008 (t −0.39). Gamma is mechanically large when IV is low and expiry is near (same run).
-- **Inferred sign adds information beyond magnitude.**
-  - Full sample: −0.031 (t −3.09).
-  - Before the marker: −0.041 (t −2.97). After: −0.021 (t −1.09).
-  - The naive sign adds nothing (t −1.35).
-  - It may proxy participant positioning rather than NIFTY gamma itself (same run).
-- **GEX and levels add a small gain in Stage B.**
-  - C vs B, mean per-walk AUC +0.019 (t 2.30, 15 of 22 walks).
-  - Continuous IC +0.034 (t 2.56, 16 of 26 walks).
-  - Participant features add nothing (B vs A, AUC t 0.74). Runs `a93ea985003fb756` vs `adc1b37810565c4c`; `ba1f5cc65cdd6155` vs `ea4fd0cbfba9fd57`.
-- **Calibration fixes overconfidence.** The reference model (tuned LightGBM + Platt) has pooled AUC 0.639 and Brier 0.624 against the prior's 0.669. It beats the prior on 17 of 22 walks (t −3.81). Run `4b3c1866ae919f77`.
-- **No overall T3 attraction to the max-GEX strike.**
-  - 35.8% moved toward it, vs the placebo's 35.5% [33.5, 37.5] (p 0.41).
-  - Real strike vs mirror sign test: p 0.82 (run `3d07783cfd0b9705`).
-- **One T3 exception, a possible round-number effect.** When the strike is within 0.12% of spot, 20.7% moved toward it against 14.3% for the mirror (sign test p 0.011). This is uncorrected for multiple comparisons, and it may be round-strike attraction rather than gamma (same run).
+**Classical ladder** (`docs/findings_forecast.md`; mean per-walk IC over 26 walks, with 95% CI):
+
+| Model | IC | 95% CI | RMSE | QLIKE |
+|---|---|---|---|---|
+| Persistence | 0.261 | 0.168 to 0.354 | 0.370 | 0.376 |
+| HAR-RV | 0.434 | 0.353 to 0.516 | 0.287 | 0.223 |
+| HAR + GEX | 0.445 | 0.365 to 0.525 | 0.289 | 0.231 |
+| Tuned LightGBM | 0.448 | 0.379 to 0.516 | 0.299 | 0.225 |
+
+- **HAR-RV is the bar to beat.** Neither HAR + GEX (+0.011, p 0.40) nor LightGBM (+0.013, p 0.61) beats it on IC.
+- **On squared loss, HAR is better than LightGBM** (Diebold–Mariano p 0.045). LightGBM's R² against HAR is −0.12.
+- **Before vs after the Nov 2024 marker (exploratory, pooled):** HAR's IC falls from 0.501 to 0.448, while LightGBM's rises from 0.442 to 0.465.
+
+**Earlier exploratory work (H):**
+- With full controls, the GEX magnitude effect disappears.
+- The inferred GEX sign survives Holm (F1).
+- The gain from levels is suggestive but not significant after Holm.
+- T3 shows no attraction to the max-GEX strike.
 
 ## Data gaps
 
@@ -159,54 +175,53 @@ From `outputs/reports/missing_data.md`:
 | Gap | Extent | Handling |
 |---|---|---|
 | Option OI recorded as 0 | 69 days: 2019-07-30, 2022-01-03 to 2022-04-11 | OI nulled; GEX, levels and OI features missing |
-| Spot missing | 8 days (2024-09-16 to 09-18, 2024-09-30 to 10-01, 2025-08-14, 2025-11-17, 2025-12-01) | Not imputed; excluded where spot is needed |
-| Option / futures days missing | 5 option days (2019-02-01 to 02-06, 2019-11-06); 1 futures day (2022-01-18) | Flagged |
+| Spot missing | 8 days (2024-09-16 to 09-18, 2024-09-30 to 10-01, 2025-08-14, 2025-11-17, 2025-12-01) | Not imputed |
+| Option / futures days missing | 5 option days, 1 futures day | Flagged |
 | Truncated expiry file | 2022-01-06 expiry ends 2021-12-31 | No expiry-day chain |
-| Option history per expiry | At most 21 calendar days | GEX horizon set to 21 days |
-| Daily India VIX | Ends 2026-04-06; 60 trading days missing | NaN, never forward-filled |
-| Intraday India VIX | 2023-01-19 to 2026-04-24 only | Optional source |
-| Bhavcopy, official closes | Absent | Reconciliation skipped; T1 blocked |
-| Spot bad prints / alignment exceptions | 1 bad print (2021-10-18); 1 noisy futures day (2025-12-05) | Bad print nulled; no relabel |
+| Option history per expiry | About 3 weeks (at most 21 calendar days) | GEX horizon 21 days |
+| Daily India VIX | Ends 2026-04-06 | NaN, never forward-filled |
+| Bhavcopy, official closes | Absent | Reconciliation skipped; T1 not used |
 
 ## Decisions log
 
-**2026-09-30**
-- Common coverage 2019-02-01 to 2026-07-03, set in `configs/data.yaml`.
-- Bars are start-labeled; session labels 09:15–15:25 (75 bars); 15:30 labels dropped.
-- Every row carries `available_at` (bar label + 5 min). Daily sources (EOD OI, participant OI, daily VIX) become available at 09:15 on the next trading day.
-- The trading calendar is the union of option and futures dates plus a weekday extension; holidays stay empty for now.
-- The futures front month is chosen once per day (nearest not yet expired); never switch intraday.
-- Dedup: options keep higher volume; futures keep the later-dated file, then higher volume; conflicting participant-OI rows are dropped and logged.
-- Missing-spot days are flagged, not imputed. Spot bad prints use a close-to-close test against the future at 3%.
-- Spot and intraday VIX are relabeled from end to start labels for 2020-12-08 to 2026-04-23, before the session filter.
-- The basis-jump threshold is 24.02 bps, the 99.9th percentile of the aligned distribution.
-- IV for both legs of a strike comes from the OTM leg (call if K ≥ F); each leg's own IV is diagnostic only.
-- Greeks exclude T ≤ 0. Total GEX excludes same-day expiries for T2 and keeps them for T1 and T3.
-- OI is in index units, so GEX = Γ × OI × S² × 0.01 with no lot multiplier. Lot sizes are rebuilt from OI divisibility.
-- Missing-OI days are flagged with GEX missing; no imputation.
-- GEX horizon is 21 days (the data maximum).
-- The inferred sign uses Pro as the dealer proxy; the strike-level OI-change refinement is deferred.
-- Level features use the naive flip, with `has_inferred_flip` as a flag.
-- Snapshot defaults: 15-minute staleness, latest-bar OI for walls, max pain on the nearest included expiry, sticky-strike flip.
-- Regime marker `weekly_expiry_rationalisation` set at 2024-11-20.
-- T2 realized volatility uses futures returns (intraday only) with spot RV secondary, and a 250-day cutoff warmup (labels start 2020).
-- OI-change feature default confirmed (within 2% of the forward, against the previous day's 15:25 OI).
-- `rv_intraday_returns` becomes a QA column, not a feature.
-- The evaluation layer is a separate package (`niftygex_eval`) with its own config hash.
-- Harness: expiry-cycle walks, 52-cycle training minimum, 1-cycle embargo, 13-cycle test blocks.
+**2026-09-30 to 2026-10-04** (data layer and earlier analyses; details in `CLAUDE.md`, `docs/schema.md`)
+- Data handling:
+  - start-labeled bars with `available_at`;
+  - spot relabel;
+  - OTM-leg IV;
+  - GEX on OI in index units over 21 days;
+  - futures RV for the target;
+  - expiry-cycle harness (52/1/13).
+- Earlier analyses: tuned LightGBM + Platt as the classifier reference; Holm families F1–F4.
+- Tooling: git initialized, and you commit manually with no Claude attribution; `notebooks/` added.
 
-**2026-10-01**
-- The reference T2 model is tuned LightGBM + Platt calibration (isotonic rejected).
-- Ablation set C uses normalized GEX, not raw rupee totals; chain-OI flow features are in none of A/B/C.
-- T3 placebo design: matched-distance random-side pseudo-strikes plus the mirror strike with a sign test.
+**2026-10-08**
+- The proposal deck v9 is the plan of record. There are three RQs, and expiry pinning and transfer learning are dropped.
+
+**2026-10-14**
+- **Forecasting target** for every model on the ladder: log(next-day futures RV / trailing 20-day mean) at 15:15.
+- **HAR-RV terms** were added to the features stage (`features.har_rv_windows`: 1 and 5 days, plus the existing 20 days).
+- **Classical baselines:**
+  - persistence is the previous day's RV ratio;
+  - HAR adds today's RV so far;
+  - HAR + GEX is a ridge with alpha tuned on the inner split;
+  - LightGBM uses the summary features with normalized GEX instead of rupee totals.
+- **RQ1–RQ3 tests** were pre-registered in `configs/eval.yaml` before any neural run.
+- **Token scope:** keep nearest-expiry tokens (about 70, as on slide 12) and add total GEX to the volatility-state vector.
+- **Reports:** every major step gets a script-generated report with figures (first: `docs/findings_forecast.md`).
+- **Archive:** the exploratory analyses (Stage A/B, T3 placebos, Holm F1–F4) moved to `archive/`. The forecast code now owns `inner_walk`, GEX normalization and its LightGBM settings.
+- **Removed:** `CS7150_Proposal.html` (superseded by the deck), `docs/phase2_plan.md`, caches and Finder files (`data/raw/` untouched).
+- **One target in the data layer:** T1 and T3 were removed from the snapshot grid, GEX, features, tokens, targets and validation; the full pipeline was rerun (features 4,803 → 1,824 rows, tokens 327,009 → 124,960; T2 unchanged).
+- **Notebook:** it now shows the 15:15 snapshot (the model's daily snapshot) instead of 14:00.
+- **Deck v10:** the wording fixes, the 26-exam count, and a win rule matching RQ1.
+
+**2026-10-16**
+- Token history: 72 snapshots per day, 09:20–15:15, built once.
+  - The GRU window is a model setting (default L = 12), so the 1-hour, 2-hour and today-so-far ablations need no data rerun.
+  - Each day uses one expiry: the nearest one that has Greek rows that day and that T2's total GEX includes. Choosing from the expiry list alone missed 7 days with no rows (2019-02, early January 2022, November 2025).
+- The 80% ATM IV on 2019-05-22 is real, not a data error: it is the eve of the general-election results (23 May), and the expiring option spans the announcement.
+- Data-step report added: `scripts/report_data.py` writes `docs/findings_data.md`.
 
 ## Open questions
 
-1. **T3 listed-strike placebo (P5.9):** should I run it, to separate GEX attraction from round-strike attraction?
-2. **Holm correction (P5.11):** which test families should be corrected (Stage A conventions × samples, ablation comparisons, T3 slices)?
-3. **C1/C2 ablation split and SHAP (P5.7):** how are C1 and C2 defined (GEX totals vs levels)? Which SHAP variant (TreeSHAP on the reference model)?
-4. **Version control (P0.6):** should I initialize a git repository? It's needed for the reproducibility pass.
-5. **HPC (P0.7, P0.8):** are the HPC profile, sync scripts and partitioned runs still required?
-6. **Spot boundary noise:** accept the leftover spot noise near the relabel-window boundaries, or investigate further? It affects spot RV (secondary) only.
-7. **Token count:** keep about 70 per snapshot (0.92–1.08 band, both legs), or narrow to the proposal's 30–50?
-8. **T1:** go ahead with the code and fixtures now, ahead of the official closes?
+1. **Slide 11 charts.** They show the 12 June 14:00 snapshot from the earlier pipeline, which no longer exists now that the data layer builds only 15:15. Should the progress slides use 15:15 charts? The notebook already does.

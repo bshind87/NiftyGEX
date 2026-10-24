@@ -10,6 +10,8 @@ from typing import Any
 
 import polars as pl
 
+from niftygex.io.provenance import git_provenance
+
 
 class ResultsStore:
     def __init__(self, root: Path) -> None:
@@ -25,6 +27,7 @@ class ResultsStore:
         for key in ("stage", "data_config_hash", "eval_config_hash"):
             if key not in spec:
                 raise ValueError(f"run spec needs {key!r}")
+        spec = {**git_provenance(), **spec}
         run_id = self.run_id(spec)
         directory = self.root / "runs" / run_id
         if directory.exists():
@@ -39,7 +42,8 @@ class ResultsStore:
         with index.open("a") as stream:
             stream.write(json.dumps({"run_id": run_id, "created_at_utc": record["created_at_utc"], "stage": spec["stage"],
                                      "model": spec.get("model"), "target": spec.get("target"),
-                                     "data_config_hash": spec["data_config_hash"], "eval_config_hash": spec["eval_config_hash"]}) + "\n")
+                                     "data_config_hash": spec["data_config_hash"], "eval_config_hash": spec["eval_config_hash"],
+                                     "git_commit": spec.get("git_commit"), "git_dirty": spec.get("git_dirty")}) + "\n")
         return directory
 
     def read_run(self, run_id: str) -> dict[str, Any]:

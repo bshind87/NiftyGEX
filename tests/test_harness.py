@@ -97,7 +97,7 @@ def test_harness_on_real_t2_table_has_no_leakage() -> None:
 
 
 def test_inner_walk_is_time_ordered_inside_training_and_embargoed() -> None:
-    from niftygex_eval.stage_b import inner_walk
+    from niftygex_eval.harness import inner_walk
 
     frame, _ = weekly_table()
     walk = build_walks(frame["cycle"].unique().to_list(), test_cycles=4, embargo_cycles=1, min_train_cycles=12)[0]

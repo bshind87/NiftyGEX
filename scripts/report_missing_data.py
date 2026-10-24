@@ -56,7 +56,7 @@ def main() -> None:
     vix_daily_days = set(pl.read_parquet(curated / "vix" / "daily.parquet")["observation_date"].unique().to_list())
     vix_intraday = pl.read_parquet(curated / "vix" / "intraday.parquet")
     raw = Path(paths["raw_root"])
-    optional = {name: (raw / name).exists() and any((raw / name).iterdir()) for name in ("bhavcopy", "official_closes")}
+    optional = {name: (raw / name).exists() and any((raw / name).iterdir()) for name in ("bhavcopy",)}
 
     payload = {
         "trading_days": len(trading),
@@ -103,7 +103,6 @@ def main() -> None:
         f"| Spot bad prints | {len(payload['spot_bad_prints_nulled'])}: {', '.join(map(str, payload['spot_bad_prints_nulled']))} | OHLC nulled |",
         "| Spot/futures alignment exceptions | " + (", ".join(f"{r['day']} (best lag {r['best_lag']}, corr {r['best_corr']:.2f})" for r in payload["spot_alignment_exceptions"]) or "none") + " | erratic futures closes; no relabel |",
         f"| Bhavcopy | {'present' if optional['bhavcopy'] else 'absent'} | 15:25 OI proxy used; reconciliation skipped |",
-        f"| Official NSE closing index (T1) | {'present' if optional['official_closes'] else 'absent'} | T1 cannot run |",
         "",
     ]
     (reports / "missing_data.md").write_text("\n".join(lines))

@@ -22,16 +22,16 @@ abs(parity forward - snapshot median forward) per near-ATM pair, index points.
 
 Forward quality by year (snapshots):
 
-| year | good | residual_high | insufficient_pairs |
+| year | insufficient_pairs | residual_high | good |
 |---|---|---|---|
-| 2019 | 39428 | 3 | 2537 |
-| 2020 | 47519 | 41 | 3039 |
-| 2021 | 55370 | 8 | 1871 |
-| 2022 | 56218 | 4 | 1703 |
-| 2023 | 57760 | 0 | 804 |
-| 2024 | 57362 | 6 | 985 |
-| 2025 | 56227 | 0 | 670 |
-| 2026 | 29078 | 0 | 185 |
+| 2019 | 2537 | 3 | 39428 |
+| 2020 | 3039 | 41 | 47519 |
+| 2021 | 1871 | 8 | 55370 |
+| 2022 | 1703 | 4 | 56218 |
+| 2023 | 804 | 0 | 57760 |
+| 2024 | 985 | 6 | 57362 |
+| 2025 | 670 | 0 | 56227 |
+| 2026 | 185 | 0 | 29078 |
 
 ## Call vs put IV agreement
 
@@ -143,14 +143,13 @@ Status: skipped — no bhavcopy files under data/raw/bhavcopy; the 15:25 option 
 | features.vix_available_at <= snapshot_at | yes | 0 |
 | feature table contains no T2 target columns | yes | 0 |
 | T2 target_available_at > snapshot_at | yes | 0 |
-| feature table contains no T3 target columns | yes | 0 |
-| T3 target_available_at > snapshot_at | yes | 0 |
 | option_eod_oi available strictly after the observation close (next trading day) | yes | 0 |
 | participant_oi available strictly after the observation close (next trading day) | yes | 0 |
 | vix_daily available strictly after the observation close (next trading day) | yes | 0 |
 | token rows available by snapshot (bar and previous EOD OI) | yes | 0 |
-| tokens come from one (nearest included) expiry per snapshot | yes | 0 |
+| tokens come from one (nearest included) expiry per trading day | yes | 0 |
+| token sequence snapshots at or before their prediction snapshot | yes | 0 |
 | curated option bars available_at = label + bar | yes | 0 |
 | GEX chain, spot and participant inputs available by snapshot | yes | 0 |
 
-Leakage test modules (`tests/test_leakage.py`, `tests/test_calendar.py`, `tests/test_stage_contracts.py`): passed = yes, counts = {'passed': 36}.
+Leakage test modules (`tests/test_leakage.py`, `tests/test_calendar.py`, `tests/test_stage_contracts.py`): passed = yes, counts = {'passed': 39}.

@@ -72,3 +72,12 @@ def check_split(train: pl.DataFrame, test: pl.DataFrame, walk: Walk) -> None:
             raise AssertionError(f"walk {walk.walk_id}: a training label resolves inside the test period")
         if set(train["cycle"].unique().to_list()) & set(walk.embargo_cycles):
             raise AssertionError(f"walk {walk.walk_id}: embargo cycles used for training")
+
+
+def inner_walk(walk: Walk, validation_cycles: int, embargo_cycles: int) -> Walk | None:
+    """Time-ordered inner split of a walk's training cycles: inner-train, embargo, then the last validation cycles."""
+    train = walk.train_cycles
+    if len(train) <= validation_cycles + embargo_cycles:
+        return None
+    return Walk(walk.walk_id, train[: -(validation_cycles + embargo_cycles)],
+                train[-(validation_cycles + embargo_cycles): -validation_cycles], train[-validation_cycles:])

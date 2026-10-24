@@ -1,8 +1,9 @@
-"""Token view: one row per liquid option leg of the nearest included expiry at each snapshot.
+"""Token view: one row per liquid option leg of the day's nearest included expiry at each sequence snapshot.
 
 A liquid leg is a GEX-chain row: eligible (traded, OTM-sourced IV solved, good forward, positive time to
-expiry) and available within the snapshot staleness window. Tokens are ordered by strike, calls before
-puts, and carry a stable field set; missing inputs stay null with flags.
+expiry) and available within the snapshot staleness window. The expiry is fixed for the whole day
+(``selection.nearest_expiry_by_day``). Tokens are ordered by strike, calls before puts, and carry a stable
+field set; missing inputs stay null with flags.
 """
 from __future__ import annotations
 
@@ -19,15 +20,10 @@ TOKEN_FIELDS = [
 ]
 
 
-def nearest_expiry_legs(selected: pl.DataFrame) -> pl.DataFrame:
-    """Keep only the nearest included expiry per (snapshot_at, target)."""
-    return selected.filter(pl.col("expiry_date") == pl.col("expiry_date").min().over(KEY))
-
-
 def build_tokens(legs: pl.DataFrame, previous_eod: pl.DataFrame, volume_today: pl.DataFrame, lots: pl.DataFrame, crore: float) -> pl.DataFrame:
     """Assemble token rows.
 
-    ``legs``: nearest-expiry GEX-chain rows with snapshot_at, target, trade_date, contract keys, forward, iv,
+    ``legs``: GEX-chain rows of one expiry per day with snapshot_at, target, trade_date, contract keys, forward, iv,
     gamma, delta, open_interest, gex_absolute, gex_naive, available_at, days_to_expiry, time_to_expiry.
     ``previous_eod``: 15:25 EOD OI keyed by ``trade_date`` = its available_date.
     ``volume_today``: cumulative volume per (snapshot_at, contract) over bars available by the snapshot.

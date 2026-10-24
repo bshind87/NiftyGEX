@@ -127,7 +127,7 @@ class IsotonicCalibrator:
         return np.where(totals > 0, out / np.where(totals > 0, totals, 1.0), uniform)
 
 
-def run_tuned(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: dict[str, Any], calibrators: list[str] | None = None) -> tuple[dict[str, tuple[pl.DataFrame, pl.DataFrame]], pl.DataFrame]:
+def run_tuned(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: dict[str, Any], calibrators: list[str] | None = None, explain: bool = False) -> tuple[dict[str, tuple[pl.DataFrame, pl.DataFrame]], pl.DataFrame]:
     """Regularization chosen on an inner validation split, then calibrators fitted on that split.
 
     Variants: ``lightgbm_tuned`` (uncalibrated inner model) and ``lightgbm_tuned_<calibrator>``. All use the
@@ -146,6 +146,7 @@ def run_tuned(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: d
     predictions: dict[str, list] = {v: [] for v in variants}
     per_walk: dict[str, list] = {v: [] for v in variants}
     chosen = []
+    shap_parts: list[pl.DataFrame] = []
     for walk in walks:
         train, test = split(table, walk)
         check_split(train, test, walk)
@@ -165,6 +166,8 @@ def run_tuned(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: d
         val_proba = aligned_proba(best_model, x_val, len(classes))
         calibrators = {"platt": PlattCalibrator(), "isotonic": IsotonicCalibrator()}
         test_raw = aligned_proba(best_model, design(test, columns), len(classes))
+        if explain:
+            shap_parts.append(tree_shap(best_model, test, columns, classes, walk.walk_id))
         outputs = {"lightgbm_tuned": test_raw}
         for name in tuning["calibrators"]:
             outputs[f"lightgbm_tuned_{name}"] = calibrators[name].fit(val_proba, y_val).transform(test_raw)
@@ -178,7 +181,44 @@ def run_tuned(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: d
                                       "train_end": inner_train["trade_date"].max(), "test_start": test["trade_date"].min(),
                                       "test_end": test["trade_date"].max(), **{k: v for k, v in m.items() if k != "auc_by_class"}})
     results = {v: (pl.concat(predictions[v]), pl.DataFrame(per_walk[v])) for v in variants}
+    if explain:
+        results["shap"] = (pl.concat(shap_parts), pl.DataFrame())
     return results, pl.DataFrame(chosen)
+
+
+def tree_shap(model, rows: pl.DataFrame, columns: list[str], outputs: list[str], walk_id: int) -> pl.DataFrame:
+    """Long-format TreeSHAP contributions (raw model margin) per row, output, and feature.
+
+    LightGBM's ``pred_contrib`` returns, per output, one column per feature plus a bias column.
+    """
+    x = design(rows, columns)
+    contrib = np.asarray(model.predict(x, pred_contrib=True))
+    width = len(columns) + 1
+    n_outputs = contrib.shape[1] // width
+    names = outputs if n_outputs == len(outputs) else ["value"]
+    frames = []
+    for k in range(n_outputs):
+        block = contrib[:, k * width: k * width + len(columns)]
+        frames.append(pl.DataFrame({
+            "walk_id": np.full(block.size, walk_id),
+            "row": np.repeat(np.arange(rows.height), len(columns)),
+            "output": np.full(block.size, names[k]),
+            "feature": np.tile(columns, rows.height),
+            "shap": block.reshape(-1),
+            "value": x.reshape(-1),
+        }))
+    keys = rows.select("snapshot_at").with_row_index("row").with_columns(pl.col("row").cast(pl.Int64))
+    return pl.concat(frames).with_columns(pl.col("row").cast(pl.Int64)).join(keys, on="row").drop("row")
+
+
+def shap_summary(shap: pl.DataFrame) -> pl.DataFrame:
+    """Mean |SHAP| per feature: averaged within each walk, then across walks (mean, sd, walks)."""
+    per_walk = shap.group_by("walk_id", "output", "feature").agg(pl.col("shap").abs().mean().alias("mean_abs_shap"))
+    overall = per_walk.group_by("walk_id", "feature").agg(pl.col("mean_abs_shap").mean()).with_columns(pl.lit("all_outputs").alias("output"))
+    both = pl.concat([per_walk, overall.select(per_walk.columns)])
+    return both.group_by("output", "feature").agg(
+        pl.col("mean_abs_shap").mean().alias("mean_abs_shap"), pl.col("mean_abs_shap").std().alias("sd_across_walks"), pl.len().alias("walks"),
+    ).sort(["output", "mean_abs_shap"], descending=[False, True])
 
 
 def paired(per_walk_a: pl.DataFrame, per_walk_b: pl.DataFrame, metric: str, higher_is_better: bool) -> dict[str, Any]:
@@ -189,11 +229,15 @@ def paired(per_walk_a: pl.DataFrame, per_walk_b: pl.DataFrame, metric: str, high
         return {"walks": 0}
     sd = float(np.std(diff, ddof=1)) if diff.size > 1 else float("nan")
     wins = int(np.sum(diff > 0) if higher_is_better else np.sum(diff < 0))
+    t = float(diff.mean() / (sd / np.sqrt(diff.size))) if diff.size > 1 and sd > 0 else None
+    from scipy.stats import t as student_t
+
+    p = float(2 * student_t.sf(abs(t), df=diff.size - 1)) if t is not None else None
     return {"walks": int(diff.size), "mean_a": float(joined["a"].mean()), "mean_b": float(joined["b"].mean()), "mean_diff": float(diff.mean()),
-            "sd_diff": sd, "t_paired": float(diff.mean() / (sd / np.sqrt(diff.size))) if diff.size > 1 and sd > 0 else None, "a_wins": wins}
+            "sd_diff": sd, "t_paired": t, "p_two_sided": p, "a_wins": wins}
 
 
-def run_tuned_regression(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: dict[str, Any], outcome: str) -> tuple[pl.DataFrame, pl.DataFrame]:
+def run_tuned_regression(table: pl.DataFrame, walks: list[Walk], columns: list[str], cfg: dict[str, Any], outcome: str, explain: bool = False):
     """Tuned LightGBM regression per walk: parameters by inner-validation MSE, refit on the full training window.
 
     Per-walk metrics include the Spearman information coefficient between prediction and outcome.
@@ -207,6 +251,7 @@ def run_tuned_regression(table: pl.DataFrame, walks: list[Walk], columns: list[s
     grid = [dict(zip(tuning["grid"], values)) for values in product(*tuning["grid"].values())]
     table = table.filter(pl.col(outcome).is_not_null() & pl.col(outcome).is_finite())
     predictions, per_walk = [], []
+    shap_parts: list[pl.DataFrame] = []
     for walk in walks:
         train, test = split(table, walk)
         check_split(train, test, walk)
@@ -223,6 +268,8 @@ def run_tuned_regression(table: pl.DataFrame, walks: list[Walk], columns: list[s
                 best, best_mse = params, mse
         model = LGBMRegressor(objective="regression", **{**cfg["lightgbm"], **best}).fit(design(train, columns), train[outcome].to_numpy())
         y, prediction = test[outcome].to_numpy(), model.predict(design(test, columns))
+        if explain:
+            shap_parts.append(tree_shap(model, test, columns, ["value"], walk.walk_id))
         ic = spearmanr(prediction, y).statistic if np.std(prediction) > 0 else float("nan")
         predictions.append(test.select("snapshot_at", "trade_date", "cycle", outcome).with_columns(
             pl.lit(walk.walk_id).alias("walk_id"), pl.Series("prediction", prediction)))
@@ -230,4 +277,6 @@ def run_tuned_regression(table: pl.DataFrame, walks: list[Walk], columns: list[s
                          "test_start": test["trade_date"].min(), "test_end": test["trade_date"].max(),
                          "ic": float(ic), "rmse": float(np.sqrt(np.mean((prediction - y) ** 2))),
                          "validation_mse": best_mse, **best})
+    if explain:
+        return pl.concat(predictions), pl.DataFrame(per_walk), pl.concat(shap_parts)
     return pl.concat(predictions), pl.DataFrame(per_walk)

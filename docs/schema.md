@@ -8,7 +8,6 @@
   - **Intraday bars** (options, futures, spot, intraday VIX, and the basis and forward/IV rows derived from them): `available_at = datetime + 5 min`, the moment the bar's close is known.
   - **Daily sources** (the 15:25 EOD OI proxy, participant OI, and daily VIX): `available_at` is 09:15 IST on the next trading day strictly after `observation_date`. `available_date` holds that date.
 - **Snapshots.** A snapshot at time `T` uses only rows with `available_at <= T`. Leakage checks compare `available_at`, never bar labels. For example, a 15:15 snapshot can use the bar labeled 15:10 but not the one labeled 15:15.
-- **T3 path.** The T3 path starts at the 14:00-labeled bar.
 - **Trading calendar.** The calendar is the union of option and futures trading dates, minus configured holidays. It is extended past the last observed date by weekday rule, so every observed date has a next trading date. When an observation date has no later trading date, the code raises an error; it never falls back to the observation date itself.
 - **Day-level quality.** Each curated row carries `truncated_session`, `missing_spot`, and `data_quality`, joined from the calendar by trade date. These are explained in [Day-level quality codes](#day-level-quality-codes).
 
@@ -24,7 +23,7 @@
 | `missing_option_oi` | Fewer than `quality.min_option_oi_share` (0.5) of traded option rows report `open_interest > 0`. The source records missing OI as 0. This covers 2019-07-30 and 2022-01-03 through 2022-04-11, 69 days | `open_interest` is set to null on these days in curated options and the EOD OI proxy. GEX and OI-based levels are missing |
 | `configured_flag` | Date listed under `data_quality_flags` in `configs/regimes.yaml` | Flag only; rows kept |
 
-`truncated_session` marks the configured truncated sessions (2020-03-13, 2020-03-23, 2021-02-24). Their rows are kept and excluded from T3 only. Non-regular sessions in `regimes.yaml` (`non_regular_sessions`) are dropped from every source, including participant OI.
+`truncated_session` marks the configured truncated sessions (2020-03-13, 2020-03-23, 2021-02-24). Their rows are kept and flagged. Non-regular sessions in `regimes.yaml` (`non_regular_sessions`) are dropped from every source, including participant OI.
 
 ## Duplicate resolution
 
@@ -85,6 +84,8 @@ The test is close-to-close. Open, high, and low can legitimately diverge on circ
 - the end-labeled 09:15 pre-open bar becomes 09:10 and is dropped.
 
 `outputs/reports/spot_label_alignment.json` verifies the result on every run. The only remaining exception, 2025-12-05 (RBI policy day), shows weak correlation at every lag (erratic futures closes), not a label offset.
+
+**Residual boundary noise (accepted).** Within-day spot–futures basis noise is higher in the 20 trading days next to both relabel-window boundaries, and the gap is not explained by volatility (`relabel_window_boundary_check`). The close remains the best-synchronized spot field, and the alignment stays at lag 0. This was accepted on 2026-10-01. It affects only spot-based realized volatility (`rv_spot_*`, the secondary T2 columns). Primary T2 RV uses futures, and GEX uses spot only as a price level.
 
 ### `vix/intraday.parquet` and `vix/daily.parquet`
 
@@ -188,10 +189,7 @@ Partitioned like `iv/`. Each file holds the IV rows that pass `greeks_input()`, 
 
 **Snapshot grid** (`snapshots/snapshot_grid.parquet`)
 - **Rows:** one per (`snapshot_at`, `target`).
-- **Schedule:**
-  - T1: 10:00, 12:00, and 14:00 on option expiry dates.
-  - T2: 15:15 daily.
-  - T3: 14:00 daily.
+- **Schedule:** T2 at 15:15 on every trading day (`snapshot_grid.t2_daily`). The targets built are listed in `niftygex.exposure.selection.TARGETS`.
 
 **GEX chain at snapshot `T`**
 - **Rows:** per contract, the latest Greeks row with `T - snapshot.max_staleness_minutes < available_at <= T` on the snapshot's trade date.
@@ -260,7 +258,7 @@ One row per (`snapshot_at`, `target`). Expiries are selected per target by `tota
 | Key levels (percent of spot) | `call_wall_distance_pct`, `put_wall_distance_pct`, `max_pain_distance_pct`, `max_gex_strike_distance_pct`, `flip_naive_distance_pct`, `has_flip`, `has_inferred_flip`. The naive flip is the level feature; inferred is a flag only |
 | Positioning flow | `oi_change_near_money_calls`, `oi_change_near_money_puts`: OI at the snapshot vs the previous trading day's 15:25 EOD OI, for strikes within `features.near_money_width` (2%) of the forward, over contracts present on both days. `put_call_oi_ratio` |
 | Volatility surface | `atm_iv` (nearest included expiry, strike nearest the forward), `skew_25d` (IV of the put nearest −0.25 delta minus IV of the call nearest +0.25 delta), `atm_iv_next`, `term_slope` (next expiry minus nearest), `days_to_next_expiry`, `time_to_expiry` |
-| Market state | `futures_basis_bps` (latest `basis_quality=good` bar within staleness), `vix_previous_close`, `rv_intraday_so_far_annualized` (front-month futures returns so far today). `rv_trailing_20d_annualized_prev`: mean annualized futures RV over the 20 trading days ending the previous trading day (at least 15 present); available from that day's close. `qa_rv_intraday_returns`, the return count, is a QA column and not a model feature |
+| Market state | `futures_basis_bps` (latest `basis_quality=good` bar within staleness), `vix_previous_close`, `rv_intraday_so_far_annualized` (front-month futures returns so far today). `rv_trailing_{1,5,20}d_annualized_prev`: mean annualized futures RV over the 1, 5 and 20 trading days ending the previous trading day (at least 1, 4 and 15 present; `features.har_rv_windows` and `trailing_rv_days`); the HAR-RV daily, weekly and monthly terms, available from that day's close. `qa_rv_intraday_returns`, the return count, is a QA column and not a model feature |
 | Participant positions | `participant_{pro,fii,client}_net_index_{calls,puts}`: previous trading day, contracts, all index options |
 | Calendar and regime | `days_to_expiry`, `is_expiry_day`, `nearest_expiry`, `nearest_expiry_weekday`, `lot_size`, `regime_post_weekly_expiry_rationalisation` |
 | Flags | `spot_available`, `oi_available`, `inferred_available`, `vix_available`, `missing_spot`, `missing_option_oi`, `truncated_session`, `data_quality` |
@@ -269,11 +267,15 @@ One row per (`snapshot_at`, `target`). Expiries are selected per target by `tota
 
 ## Token features (`data/features/tokens/year=YYYY.parquet`, stage `tokens`)
 
-One row per liquid option leg of the nearest included expiry, per (`snapshot_at`, `target`).
+One row per liquid option leg of the day's nearest included expiry, per sequence snapshot (`snapshot_at`, `target`).
 
-**What counts as liquid.** A liquid leg is a GEX-chain row: eligible (traded, OTM-sourced IV solved, good forward, positive time to expiry) and available within the 15-minute staleness window. The expiry is selected per target as for total GEX, so T2 tokens never use the same-day contract.
+**Sequence snapshots.** Every `snapshot_grid.sequence_step_minutes` (5) from `sequence_start` (09:20, when the 09:15 bar is known) up to and including the target's prediction snapshot (15:15 for T2): 72 per day. `prediction_at` is that day's prediction snapshot, and `lag` counts snapshots back from it (0 = 15:15, 71 = 09:20). A model with an L-snapshot window uses lags 0 to L − 1 of each day. Each day's history stays within that day.
 
-**Order.** Tokens are sorted by strike, calls before puts, and `token_index` numbers them from 0. Snapshots usually carry 40–90 tokens; the median is about 70.
+**Which expiry.** One expiry per day (`selection.nearest_expiry_by_day`): the nearest expiry that has Greek rows that day and that total GEX includes for the target, so T2 tokens never use the same-day contract and a history never switches contracts intraday.
+
+**What counts as liquid.** A liquid leg is a GEX-chain row, built with the GEX stage's rules: eligible (traded, OTM-sourced IV solved, good forward, positive time to expiry), the latest row available within the 15-minute staleness window, spot as of the snapshot, previous-day participant signs. At lag 0 the tokens equal the GEX stage's chain for that expiry (stage-contract test).
+
+**Order.** Tokens are sorted by strike, calls before puts, and `token_index` numbers them from 0 within each snapshot. Snapshots usually carry 40–90 tokens; the median is about 70.
 
 | Field | Definition |
 |---|---|
@@ -287,8 +289,11 @@ One row per liquid option leg of the nearest included expiry, per (`snapshot_at`
 | `days_to_expiry`, `time_to_expiry` | Calendar days, and calendar years from `available_at` |
 | `available_at` | Of the leg's bar |
 | `oi_missing`, `previous_oi_missing` | Missing-input flags; values are never filled |
+| `prediction_at`, `lag` | The day's prediction snapshot, and snapshots back from it |
 
-`outputs/reports/tokens_report.json` reports tokens per snapshot, coverage by year, and field missingness.
+`outputs/reports/tokens_report.json` reports tokens per prediction and per sequence snapshot, by lag, coverage by year, full-sequence days, and field missingness. `docs/findings_data.md` (`scripts/report_data.py`) shows them as figures.
+
+**Token count.** Token counts vary by snapshot (about 70 by default). Sequence models must pad to a common length and use a padding mask; `token_index` gives the order. A narrower moneyness band is a planned ablation, not the default.
 
 ## T2 targets (`data/targets/t2/t2.parquet`, stage `targets`)
 
@@ -312,25 +317,6 @@ Targets are stored separately from features. There is one row per T2 snapshot (1
 **Bookkeeping**
 - **`t2_reason`:** `ok`, `no_next_trading_day`, `next_day_rv_missing`, `trailing_rv_insufficient`, or `insufficient_cutoff_history`.
 - **`target_available_at`:** when the next day's last bar is available (15:30 IST). It is always later than `snapshot_at`.
-
-## T3 targets (`data/targets/t3/t3.parquet`, stage `targets`)
-
-There is one row per T3 snapshot (14:00).
-
-| Column | Definition |
-|---|---|
-| `t3_start_price` | The snapshot spot: close of the 13:55-labeled bar, available at 14:00 |
-| `t3_end_price` | Close of the 15:25-labeled bar, available at 15:30 = `target_available_at` |
-| `t3_strike` | Max-GEX strike (absolute convention) at the T3 snapshot |
-| `t3_label` | `abs(end - strike) < abs(start - strike)`, i.e. the index moved toward the strike |
-| `t3_distance_reduction_pct` | `(start distance - end distance) / start price * 100` |
-| `t3_touched_strike` | The path's low/high spans the strike |
-| `t3_path_bars` | Spot bars in the path (labels 14:00 to 15:25) |
-| `t3_reason` | `ok`, `truncated_session`, `missing_spot`, `no_max_gex_strike`, `no_snapshot_spot`, `missing_end_bar`, `insufficient_path_bars` (fewer than `targets.t3.min_path_bars`, 16 of 18), or `start_at_strike` |
-
-**Exclusions.** Truncated sessions are excluded from T3 only.
-
-**Null baseline.** The max-GEX strike usually sits very close to spot (median start distance 0.21%), so a random walk often overshoots it. The no-effect null for "moved toward" is therefore not 50%, and T3 evaluation needs an explicit null.
 
 ## Validation (`scripts/validate_data.py`)
 
@@ -357,9 +343,7 @@ The stage exits non-zero on any leakage violation.
 
 | Target | Same-day expiry in total GEX |
 |---|---|
-| T1 (expiry-day pinning, 10:00 / 12:00 / 14:00) | kept |
-| T2 (15:15 daily) | excluded |
-| T3 (14:00 daily) | kept (confirmed) |
+| T2 (15:15 daily) | excluded: those contracts expire before the forecast day |
 
 ## Manifests and reports
 
@@ -370,6 +354,7 @@ The stage exits non-zero on any leakage violation.
   - outputs with row counts
   - stage counts and quality flags
 - **Upstream check.** Downstream stages refuse to run when the upstream manifest's `config_hash` differs from the current configuration.
+- **Code provenance.** Every manifest and every results-store run spec records `git_commit` (HEAD) and `git_dirty` (uncommitted or untracked changes present).
 - **Reports.** Every report is written by a script under `scripts/` to `outputs/reports/<name>.json`:
   - `cleaning_report`
   - `duplicate_conflicts`
@@ -383,6 +368,8 @@ The stage exits non-zero on any leakage violation.
   - `levels_report`
   - `features_report`
   - `tokens_report`
+  - `targets_t1_report`
   - `targets_t2_report`
   - `targets_t3_report`
   - `validation_report`
+  - `missing_data`

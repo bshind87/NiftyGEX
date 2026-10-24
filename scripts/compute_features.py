@@ -8,7 +8,7 @@ import polars as pl
 
 from niftygex.clean.session import session_settings
 from niftygex.config import load_config
-from niftygex.exposure.selection import total_gex_expiries
+from niftygex.exposure.selection import TARGETS, total_gex_expiries
 from niftygex.features.aggregate import (
     KEY,
     gex_features,
@@ -23,7 +23,6 @@ from niftygex.io.parquet import describe_files, require_upstream, staged_outputs
 from niftygex.io.regimes import lot_sizes_by_expiry, regime_marker_flags
 
 STAGE = "features"
-TARGETS = ("t1", "t2", "t3")
 
 
 def select_for_targets(grid: pl.DataFrame, rows: pl.DataFrame, gex_cfg: dict[str, Any]) -> pl.DataFrame:
@@ -63,7 +62,8 @@ def main() -> None:
     trading_dates = pl.read_parquet(curated / "calendar" / "trading_calendar.parquet").filter(pl.col("observed")).sort("trading_date")["trading_date"].to_list()
     frame = frame.join(trailing_rv_features(
         grid, pl.read_parquet(curated / "futures" / "nifty_front_month.parquet"), trading_dates,
-        window=int(features_cfg["trailing_rv_days"]), min_days=int(features_cfg["trailing_rv_min_days"]),
+        windows={int(features_cfg["trailing_rv_days"]): int(features_cfg["trailing_rv_min_days"]),
+                 **{int(days): int(n) for days, n in features_cfg["har_rv_windows"].items()}},
         min_bars=int(data["targets"]["t2"]["min_bars"]), returns_per_day=settings["expected_bars"] - 1,
         trading_days_per_year=int(data["targets"]["trading_days_per_year"]),
     ), on=KEY, how="left")

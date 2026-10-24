@@ -169,10 +169,6 @@ def test_gex_totals_missing_when_inputs_missing_and_selection_rules_hold() -> No
     assert totals.filter(~pl.col("inferred_available") & pl.col("gex_inferred").is_not_null()).height == 0
     assert totals.filter((pl.col("target") == "t2") & pl.col("includes_same_day_expiry").fill_null(False)).height == 0
     assert totals.filter(pl.col("max_days_to_expiry") > CONFIG["data"]["gex"]["max_days_to_expiry"]).height == 0
-    # T1 runs only on option expiry dates.
-    t1_days = set(totals.filter(pl.col("target") == "t1")["trade_date"].to_list())
-    expiry_dates = set(pl.read_parquet(EXPOSURE / "gex_expiry" / "gex_expiry.parquet")["expiry_date"].to_list())
-    assert t1_days <= expiry_dates
 
 
 @needs_gex
@@ -194,3 +190,43 @@ def test_configured_lot_sizes_match_oi_divisibility() -> None:
     judged = result.filter(pl.col("positive_oi_rows").is_not_null())
     assert judged.height > 300
     assert judged.filter(~pl.col("passed")).height == 0, judged.filter(~pl.col("passed")).to_dicts()
+
+
+@needs_forward
+def test_manifests_record_git_commit() -> None:
+    for stage in ("clean", "forward", "greeks", "gex", "features", "tokens", "targets"):
+        manifest = json.loads((CONFIG["paths"]["manifests_root"] / f"{stage}.json").read_text())
+        assert "git_commit" in manifest and "git_dirty" in manifest, stage
+
+
+FEATURES = CONFIG["paths"]["features_root"]
+needs_tokens = pytest.mark.skipif(not (FEATURES / "tokens").exists(), reason="tokens stage not run")
+
+
+@needs_gex
+@needs_tokens
+def test_prediction_snapshot_tokens_match_the_gex_chain() -> None:
+    """At lag 0 the token chain is the GEX stage's chain for the day's nearest included expiry."""
+    tokens = pl.scan_parquet(FEATURES / "tokens" / "*.parquet").filter(pl.col("lag") == 0).select(
+        "snapshot_at", "expiry_date", "strike_price", "right", "strike_gex_absolute_crore").collect()
+    chain = pl.scan_parquet(EXPOSURE / "gex_strikes" / "*.parquet").join(
+        tokens.select("snapshot_at", "expiry_date").unique().lazy(), on=["snapshot_at", "expiry_date"]).select(
+        "snapshot_at", "expiry_date", "strike_price", "right", (pl.col("gex_absolute") / 1e7).alias("chain_gex")).collect()
+    joined = tokens.join(chain, on=["snapshot_at", "expiry_date", "strike_price", "right"], how="full", coalesce=True)
+    assert joined.height == tokens.height == chain.height
+    differs = joined.filter(~pl.col("strike_gex_absolute_crore").eq_missing(pl.col("chain_gex")) &
+                            ((pl.col("strike_gex_absolute_crore") - pl.col("chain_gex")).abs() > 1e-9))
+    assert differs.height == 0
+
+
+@needs_tokens
+def test_token_sequences_are_ordered_and_one_expiry_per_day() -> None:
+    tokens = pl.scan_parquet(FEATURES / "tokens" / "*.parquet")
+    stats = tokens.select(
+        (pl.col("snapshot_at") > pl.col("prediction_at")).sum().alias("after_prediction"),
+        (pl.col("available_at") > pl.col("snapshot_at")).sum().alias("late"),
+        (pl.col("lag") < 0).sum().alias("negative_lag"),
+    ).collect().row(0, named=True)
+    assert stats == {"after_prediction": 0, "late": 0, "negative_lag": 0}
+    per_day = tokens.group_by("trade_date", "target").agg(pl.col("expiry_date").n_unique().alias("n")).collect()
+    assert per_day["n"].max() == 1

@@ -12,7 +12,7 @@ from niftygex.pricing.black76 import delta, gamma
 from niftygex.validation.leakage import assert_available_by
 
 IST = ZoneInfo("Asia/Kolkata")
-GRID = {"t1_expiry_days": ["10:00", "12:00", "14:00"], "t2_daily": "15:15", "t3_daily": "14:00"}
+GRID = {"t2_daily": "15:15", "sequence_start": "09:20", "sequence_step_minutes": 5}
 
 
 def test_black76_delta_put_call_relation() -> None:
@@ -26,10 +26,10 @@ def test_atm_gamma_increases_as_expiry_approaches() -> None:
     assert values[0] < values[1] < values[2]
 
 
-def test_snapshot_grid_runs_t1_only_on_expiry_days() -> None:
-    grid = snapshot_grid([date(2024, 2, 28), date(2024, 2, 29)], [date(2024, 2, 29)], GRID)
-    counts = dict(grid.group_by("trade_date").len().iter_rows())
-    assert counts == {date(2024, 2, 28): 2, date(2024, 2, 29): 5}
+def test_snapshot_grid_one_t2_snapshot_per_trading_day() -> None:
+    grid = snapshot_grid([date(2024, 2, 29), date(2024, 2, 28)], GRID)
+    assert grid["target"].to_list() == ["t2", "t2"]
+    assert grid["snapshot_at"].to_list() == [datetime(2024, 2, 28, 15, 15, tzinfo=IST), datetime(2024, 2, 29, 15, 15, tzinfo=IST)]
     assert grid["snapshot_at"].dtype == pl.Datetime("us", "Asia/Kolkata")
 
 
@@ -124,3 +124,16 @@ def test_flip_level_between_put_and_call_concentrations() -> None:
     flip = flip_level(strike=strikes, sign=np.array([-1.0, 1.0]), **common)
     assert flip.crossings == 1 and flip.value == pytest.approx(10000.0, rel=2e-3)
     assert flip_level(strike=strikes, sign=np.array([1.0, 1.0]), **common).value is None
+
+
+def test_sequence_grid_runs_from_first_bar_close_to_the_prediction_snapshot() -> None:
+    from niftygex.exposure.snapshots import sequence_grid
+
+    grid = sequence_grid([date(2024, 2, 28)], GRID)
+    assert grid.height == 72 and grid["target"].unique().to_list() == ["t2"]
+    assert grid["snapshot_at"].min() == datetime(2024, 2, 28, 9, 20, tzinfo=IST)
+    assert grid["snapshot_at"].max() == datetime(2024, 2, 28, 15, 15, tzinfo=IST)
+    assert (grid["snapshot_at"] <= grid["prediction_at"]).all() and grid["prediction_at"].unique().to_list() == [datetime(2024, 2, 28, 15, 15, tzinfo=IST)]
+    assert grid.sort("snapshot_at")["lag"].to_list() == list(range(71, -1, -1))
+    with pytest.raises(ValueError):
+        sequence_grid([date(2024, 2, 28)], {**GRID, "sequence_start": "09:22"})

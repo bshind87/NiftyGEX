@@ -12,6 +12,7 @@ import polars as pl
 
 from niftygex.clean.session import session_settings
 from niftygex.config import REPO_ROOT, load_config
+from niftygex.exposure.selection import TARGETS
 from niftygex.io.availability import observation_close
 from niftygex.io.parquet import describe_files, require_upstream, write_manifest, write_report
 from niftygex.validation.checks import lot_size_check, summary
@@ -19,6 +20,8 @@ from niftygex.validation.report import render_markdown
 
 STAGE = "validation"
 MONEYNESS_BUCKETS = [(0.0, 0.01), (0.01, 0.03), (0.03, 0.05), (0.05, 0.09)]
+# Snapshot-time values (known at the snapshot) that target tables may carry for context.
+SNAPSHOT_CONTEXT = {"spot"}
 LEAKAGE_TESTS = ["tests/test_leakage.py", "tests/test_calendar.py", "tests/test_stage_contracts.py"]
 
 
@@ -103,10 +106,17 @@ def leakage_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
         late = features.filter(pl.col(column) > pl.col("snapshot_at")).height
         checks.append({"check": f"features.{column} <= snapshot_at", "passed": late == 0, "violations": late,
                        "rows_with_source": int(features[column].is_not_null().sum())})
-    for name in ("t2", "t3"):
+    for name in TARGETS:
         targets = pl.read_parquet(Path(paths["targets_root"]) / name / f"{name}.parquet")
-        target_only = sorted(set(targets.columns) - {"snapshot_at", "trade_date", "target_date"})
+        target_only = sorted(set(targets.columns) - {"snapshot_at", "trade_date", "target_date"} - SNAPSHOT_CONTEXT)
         leaked = sorted(set(target_only) & set(features.columns))
+        shared = sorted(SNAPSHOT_CONTEXT & set(targets.columns) & set(features.columns))
+        if shared:
+            # Snapshot-time context copied into a target table must equal the feature values exactly.
+            compared = targets.select("snapshot_at", *shared).join(
+                features.select("snapshot_at", *[pl.col(c).alias(f"feature_{c}") for c in shared]).unique("snapshot_at"), on="snapshot_at")
+            mismatch = compared.filter(pl.any_horizontal([~pl.col(c).eq_missing(pl.col(f"feature_{c}")) for c in shared])).height
+            checks.append({"check": f"{name.upper()} snapshot-context columns equal feature values", "passed": mismatch == 0, "violations": mismatch, "columns": shared})
         checks.append({"check": f"feature table contains no {name.upper()} target columns", "passed": not leaked, "violations": len(leaked), "columns": leaked})
         early = targets.filter(pl.col("target_available_at").is_not_null() & (pl.col("target_available_at") <= pl.col("snapshot_at"))).height
         gap = targets.drop_nulls("target_available_at").select((pl.col("target_available_at") - pl.col("snapshot_at")).dt.total_minutes().min()).item()
@@ -118,9 +128,11 @@ def leakage_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
         checks.append({"check": f"{name} available strictly after the observation close (next trading day)", "passed": bad == 0, "violations": bad, "rows": frame.height})
     tokens = pl.scan_parquet(Path(paths["features_root"]) / "tokens" / "*.parquet")
     late_tokens = tokens.select(((pl.col("available_at") > pl.col("snapshot_at")) | (pl.col("eod_oi_available_at") > pl.col("snapshot_at"))).sum()).collect().item()
-    multi_expiry = tokens.group_by("snapshot_at", "target").agg(pl.col("expiry_date").n_unique().alias("n")).filter(pl.col("n") > 1).select(pl.len()).collect().item()
+    multi_expiry = tokens.group_by("trade_date", "target").agg(pl.col("expiry_date").n_unique().alias("n")).filter(pl.col("n") > 1).select(pl.len()).collect().item()
+    after_prediction = tokens.select((pl.col("snapshot_at") > pl.col("prediction_at")).sum()).collect().item()
     checks.append({"check": "token rows available by snapshot (bar and previous EOD OI)", "passed": late_tokens == 0, "violations": late_tokens})
-    checks.append({"check": "tokens come from one (nearest included) expiry per snapshot", "passed": multi_expiry == 0, "violations": multi_expiry})
+    checks.append({"check": "tokens come from one (nearest included) expiry per trading day", "passed": multi_expiry == 0, "violations": multi_expiry})
+    checks.append({"check": "token sequence snapshots at or before their prediction snapshot", "passed": after_prediction == 0, "violations": after_prediction})
     bad_bars = pl.scan_parquet(curated / "options" / "*.parquet").select(
         (pl.col("available_at") != pl.col("datetime") + pl.duration(minutes=session["bar_minutes"])).sum()).collect().item()
     checks.append({"check": "curated option bars available_at = label + bar", "passed": bad_bars == 0, "violations": bad_bars})

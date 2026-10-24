@@ -30,6 +30,26 @@ def table(rows: list[dict], columns: list[tuple[str, str]], digits: int = 3) -> 
     return "\n".join(out)
 
 
+def f2_reading(holm: dict) -> list[str]:
+    """F1/F2 narrative with numbers from the Holm results."""
+    f2 = {m["test"].split(" (")[0]: m for m in holm["F2"]["members"]}
+    f1 = {m["test"]: m for m in holm["F1"]["members"]}
+    c, c1, c2 = f2["C vs B"], f2["C1 vs B"], f2["C2 vs B"]
+    primary = f1["inferred sign, full"]
+    return [
+        f"- **Levels, not GEX magnitude, carry the C gain.** On IC, C2 (levels + concentration) improves on B by {f(c2['estimate'], 4)} "
+        f"(wins {c2['wins']}, p {f(c2['p'])}), as much as the full set C does ({f(c['estimate'], 4)}, p {f(c['p'])}). C1 (normalized GEX + inferred "
+        f"sign) adds {f(c1['estimate'], 4)} (p {f(c1['p'])}).",
+        f"- **After Holm within F2, no comparison is significant at 5%.** C vs B has Holm p {f(c['p_holm'])} and C2 vs B has {f(c2['p_holm'])}. "
+        "These are suggestive, not confirmed.",
+        f"- **F1 inferred-sign result:** full-sample coefficient {f(primary['estimate'])}, Holm p {f(primary['p_holm'])} "
+        f"({'survives' if primary['reject_holm'] else 'does not survive'} at 5%). Sign terms rejecting under Holm: "
+        + (", ".join(m["test"] for m in holm["F1"]["members"] if m["reject_holm"]) or "none") + ".",
+        "- **SHAP agrees with the ablation.** Vol-state features dominate. Among GEX/levels features, max-pain distance and GEX concentration "
+        "rank highest. SHAP measures use, not incremental value, so participant features can rank high in SHAP while adding nothing in the ablation.",
+    ]
+
+
 def main() -> None:
     cfg = load_eval_config()
     root = Path(cfg["results_root"])
@@ -38,6 +58,8 @@ def main() -> None:
     regressions = pl.read_parquet(root / "runs" / stage_a_id / "regressions.parquet")
     comparison = json.loads((root / "stage_b_t2_comparison.json").read_text())
     ablation = json.loads((root / "t2_ablation.json").read_text())
+    holm = {fam["family"]: fam for fam in json.loads((root / "multiple_testing.json").read_text())["families"]}
+    figures = json.loads((root / "figures" / "index.json").read_text()) if (root / "figures" / "index.json").exists() else []
     samples = {"full": "full", "pre_weekly_expiry_rationalisation": "pre", "post_weekly_expiry_rationalisation": "post"}
 
     def a_rows(spec: str, controls: str, terms: list[str] | None = None) -> list[dict]:
@@ -119,13 +141,15 @@ def main() -> None:
         "",
         "Run ids: " + ", ".join(f"{model} `{run}`" for model, run in sorted(stage_b_ids.items())) + ".",
         "",
-        "## 3. Three-way ablation (tuned LightGBM + Platt; regression for the continuous variant)",
+        "## 3. Ablation (tuned LightGBM + Platt; regression for the continuous variant)",
         "",
         "The three feature sets are nested:",
         "",
         "- **A:** vol state and calendar.",
         "- **B:** A plus participant positioning.",
         "- **C:** B plus normalized GEX and levels.",
+        "- **C1:** B plus normalized GEX (3 conventions) and the inferred sign.",
+        "- **C2:** B plus levels (call wall, put wall, naive flip, max pain, max-GEX strike distances) and GEX concentration.",
         "",
         "The continuous variant predicts log(next-day RV ratio) and is scored by the per-walk Spearman information coefficient (IC).",
         "",
@@ -137,8 +161,32 @@ def main() -> None:
         "",
         "**Findings**",
         "",
+        "### Holm-adjusted families",
+        "",
+        "F2 is the primary family (IC). AUC and Brier get their own secondary families.",
+        "",
+        *[part for name in ("F2", "F2-secondary-AUC", "F2-secondary-Brier") for part in (
+            f"**{name}**", "",
+            table(holm[name]["members"], [("test", "test"), ("estimate", "mean diff"), ("t", "t"), ("wins", "wins"), ("p", "p"), ("p_holm", "Holm p"), ("reject_holm", "reject")], 4),
+            "")],
+        "**F1, Stage A sign terms** (primary: full-sample inferred sign):",
+        "",
+        table(holm["F1"]["members"], [("test", "test"), ("estimate", "coef"), ("t", "t"), ("p", "p"), ("p_holm", "Holm p"), ("primary", "primary"), ("reject_holm", "reject")]),
+        "",
+        "### Feature importance (TreeSHAP on the tuned model's raw output for set " + ablation.get("shap_feature_set", "C") + ")",
+        "",
+        "Mean |SHAP| is computed per walk, then averaged across walks (classification: averaged over the three tercile outputs).",
+        "",
+        table(sorted([r for r in ablation.get("shap_mean_abs", {}).get("classification", []) if r["output"] == "all_outputs"],
+                     key=lambda r: -r["mean_abs_shap"])[:12],
+              [("feature", "feature"), ("mean_abs_shap", "mean |SHAP|"), ("sd_across_walks", "sd across walks"), ("walks", "walks")], 4),
+        "",
+        "Figures (in the results store): " + ", ".join(f"`{fig}`" for fig in figures) + ".",
+        "",
+        "**Findings**",
+        "",
         "- **Participant positioning adds nothing** over vol state and calendar (B vs A).",
-        "- **GEX and levels add a small but consistent improvement** over B, in both the classification and the continuous task (C vs B).",
+        *f2_reading(holm),
         "- **Most of the predictability comes from vol-state features**, chiefly volatility mean reversion.",
         "- **Caveat:** with about 20 walks and several comparisons, t-statistics around 2 are modest evidence.",
         "",

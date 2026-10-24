@@ -17,9 +17,12 @@ availability:
   # on the next trading day.
   next_trading_day_time: '09:15'
 snapshot_grid:
-  t1_expiry_days: ['10:00', '12:00', '14:00']
+  # One prediction snapshot per trading day for each target in niftygex.exposure.selection.TARGETS.
   t2_daily: '15:15'
-  t3_daily: '14:00'      # T3 path starts at the 14:00-labeled bar
+  # Token history for sequence models: every bar-close snapshot from sequence_start up to and including each
+  # target's daily snapshot (09:20 is when the first 09:15 bar is known). Models slice the last L of them.
+  sequence_start: '09:20'
+  sequence_step_minutes: 5
 lookback:
   trading_days: 20
   bars: 1500
@@ -41,12 +44,10 @@ pricing:
 gex:
   max_days_to_expiry: 21   # data maximum: each expiry has at most ~21 calendar days of option history
   scale_percent_move: 0.01
-  # Whether contracts expiring on the snapshot's trade date enter total GEX, per target snapshot grid.
-  # T2 excludes them; T1 (expiry-day pinning) keeps them. T3 keeps them pending confirmation.
+  # Whether contracts expiring on the snapshot's trade date enter total GEX, per target. T2 (next-day
+  # volatility) excludes them: they expire before the forecast day.
   same_day_expiry_in_total_gex:
-    t1: true
     t2: false
-    t3: true            # confirmed 2026-09-30
   # open_interest is reported in index units (OI is always a multiple of the lot size), so
   # GEX = gamma x OI x spot^2 x scale_percent_move with no lot-size multiplier.
   open_interest_unit: index_units
@@ -66,6 +67,8 @@ features:
   # Causal trailing RV feature: futures RV over the trading days ending the previous trading day.
   trailing_rv_days: 20
   trailing_rv_min_days: 15
+  # HAR-RV terms (window days: minimum days present), same construction: previous-day and 5-day RV.
+  har_rv_windows: {1: 1, 5: 4}
   tokens:
     # Strike GEX in token rows is reported in crore rupees.
     gex_unit_rupees: 1.0e7
@@ -80,11 +83,6 @@ targets:
     # Tercile cutoffs for a T2 snapshot on day d use only ratios whose target day is < d (known before the
     # 15:15 snapshot; expanding window).
     cutoff_min_history: 250
-  t3:
-    # Path starts at the 14:00-labeled bar (the snapshot spot is the close available at 14:00) and ends at
-    # the close of the 15:25-labeled bar (available 15:30). Truncated sessions are excluded.
-    path_end_label: '15:25'
-    min_path_bars: 16      # of 18 bars labeled 14:00..15:25
 validation:
   # ATM IV of the longest available expiry at the T2 snapshot vs the same day's India VIX close.
   atm_iv_vs_vix_target: t2
@@ -120,7 +118,6 @@ partitioning:
   lookback_from_prior_partitions: true
 optional_sources:
   bhavcopy: true
-  official_closes: true
   intraday_vix: true
 futures:
   roll_rule: nearest_expiry_not_expired

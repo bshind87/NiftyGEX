@@ -161,21 +161,25 @@ def participant_features(snapshots: pl.DataFrame, participant: pl.DataFrame, cli
     return frame.drop("trade_date")
 
 
-def trailing_rv_features(snapshots: pl.DataFrame, futures: pl.DataFrame, trading_dates: list, *, window: int, min_days: int,
+def trailing_rv_features(snapshots: pl.DataFrame, futures: pl.DataFrame, trading_dates: list, *, windows: dict[int, int],
                          min_bars: int, returns_per_day: int, trading_days_per_year: int) -> pl.DataFrame:
-    """Annualized futures RV averaged over the ``window`` trading days ending the previous trading day.
+    """Annualized futures RV averaged over each window of trading days ending the previous trading day.
 
-    Only completed earlier days enter, so the feature is available from the previous day's close.
+    ``windows`` maps a window length in days to the minimum number of days present; each gives a column
+    ``rv_trailing_{days}d_annualized_prev`` (1 is the previous day's RV, as in HAR-RV). Only completed
+    earlier days enter, so every column is available from the previous day's close.
     """
     from niftygex.features.realized_vol import daily_realized_vol, trailing_mean
 
     daily = daily_realized_vol(futures, min_bars=min_bars, trading_days_per_year=trading_days_per_year, returns_per_day=returns_per_day)
-    trail = trailing_mean(daily, trading_dates, window, min_days, column="rv_annualized").join(
-        daily.select("trade_date", "rv_available_at"), on="trade_date", how="left")
+    trail = daily.select("trade_date", "rv_available_at")
+    for days, min_days in sorted(windows.items()):
+        trail = trail.join(trailing_mean(daily, trading_dates, int(days), int(min_days), column="rv_annualized").rename(
+            {"rv_annualized_trailing_mean": f"rv_trailing_{days}d_annualized_prev"}), on="trade_date", how="full", coalesce=True)
     previous = pl.DataFrame({"trade_date": trading_dates[1:], "previous_date": trading_dates[:-1]},
                             schema={"trade_date": pl.Date, "previous_date": pl.Date})
     lagged = previous.join(trail.rename({"trade_date": "previous_date"}), on="previous_date", how="left").select(
-        "trade_date", pl.col("rv_annualized_trailing_mean").alias("rv_trailing_20d_annualized_prev"),
+        "trade_date", *[f"rv_trailing_{days}d_annualized_prev" for days in sorted(windows)],
         pl.col("rv_available_at").alias("rv_trailing_available_at"),
     )
     return snapshots.select(*KEY, "trade_date").join(lagged, on="trade_date", how="left").drop("trade_date")

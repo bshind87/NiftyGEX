@@ -5,7 +5,7 @@ This directory is local runtime storage and is fully gitignored except for this 
 ```text
 data/
   raw/                 immutable copies of legacy sources (scripts/import_raw.py)
-    options/ futures/ equity/ india_vix/ fiidii/ official_closes/ bhavcopy/
+    options/ futures/ equity/ india_vix/ fiidii/ bhavcopy/
   curated/             stage clean (options, futures, market, vix, oi, calendar) and stage basis (basis)
   greeks/              stage forward (forward, parity, iv)
   features/

@@ -12,33 +12,28 @@ harness:
 
 results_store: outputs/results
 
-stage_a:
+forecast:
+  # The proposal's ladder (slides 14-15). Every model predicts log(rv_ratio_trailing) at the T2 15:15
+  # snapshot: next-day front-month futures RV over its trailing 20-day mean. Same walks, same test rows.
   target: t2
   outcome: rv_ratio_trailing
-  controls: [vix_previous_close]
-  # Robustness controls; rv_ratio_trailing_lagged is the previous T2 row's target (today's RV ratio), used only
-  # when that row's target day is the snapshot day. It resolves at today's close, 15 minutes after the
-  # 15:15 snapshot: acceptable as a regression control, not as a predictive feature.
-  robustness_controls: [vix_previous_close, atm_iv, days_to_expiry, is_expiry_day, rv_ratio_trailing_lagged]
-  # Joint spec: magnitude (normalized absolute GEX) plus the total-GEX sign under these conventions.
-  sign_conventions: [naive, inferred]
-  hac_maxlags: 5
-  # Primary spec divides each total GEX by the trailing mean of absolute total GEX over this many prior T2
-  # snapshots (inclusive, causal), removing the strong OI growth trend; the level spec (rupees x 1e-12,
-  # i.e. lakh crore) is reported as a robustness check.
-  normalization_window: 250
-  normalization_min_periods: 60
-  conventions: [naive, absolute, inferred]
-
-stage_b:
-  target: t2
-  label: t2_label
-  classes: [low, mid, high]
-  # Features come from outputs/reports/features_report.json (feature_columns) minus this list.
-  exclude_features: [spot]   # the index level is a trend proxy, not a positioning feature
-  baselines:
-    vix_only: [vix_previous_close]
-  logistic: {C: 1.0, max_iter: 5000}
+  models: [historical_mean, persistence, har, har_gex, lightgbm]
+  reference: har            # out-of-sample R² is measured against this model
+  # Persistence: log(previous-day RV / trailing 20-day RV), both completed before the snapshot.
+  persistence_columns: [rv_trailing_1d_annualized_prev, rv_trailing_20d_annualized_prev]
+  # HAR-RV: OLS on logs of daily, weekly and monthly RV through yesterday plus today's RV so far.
+  har_columns: [rv_trailing_1d_annualized_prev, rv_trailing_5d_annualized_prev, rv_trailing_20d_annualized_prev,
+                rv_intraday_so_far_annualized]
+  # HAR + GEX ("+ the one number"): ridge, alpha chosen on the inner split by MSE.
+  gex_columns: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_sign_inferred]
+  ridge_alphas: [0.1, 1.0, 10.0, 100.0]
+  # Tuned LightGBM on the summary features. Raw rupee GEX totals and the index level trend with OI growth
+  # and are replaced by normalized GEX.
+  summary_exclude: [spot, gex_total_naive, gex_total_absolute, gex_total_inferred]
+  dm_max_lags: 5
+  regime_column: regime_post_weekly_expiry_rationalisation
+  # Normalized GEX: total GEX / causal trailing mean of absolute total GEX over prior T2 snapshots.
+  gex_normalization: {conventions: [naive, absolute, inferred], window: 250, min_periods: 60}
   lightgbm:
     n_estimators: 300
     learning_rate: 0.03
@@ -51,42 +46,24 @@ stage_b:
     deterministic: true
     n_jobs: 1
     verbose: -1
-  calibration_bins: 10
-  # Ablation: LightGBM without any GEX, level, positioning, or participant features.
-  no_gex_features: [days_to_expiry, nearest_expiry_weekday, is_expiry_day, atm_iv, skew_25d, term_slope,
-                    rv_intraday_so_far_annualized, rv_trailing_20d_annualized_prev, vix_previous_close]
-  # Three-way ablation (all tuned + Platt). C adds normalized GEX (total / causal trailing mean absolute GEX,
-  # as in Stage A) rather than raw rupee totals, which trend with OI growth. Chain-OI flow (OI change, PCR),
-  # basis, lot size and the regime flag are in none of A/B/C.
-  feature_sets:
-    A: [days_to_expiry, nearest_expiry_weekday, is_expiry_day, atm_iv, skew_25d, term_slope,
-        rv_intraday_so_far_annualized, rv_trailing_20d_annualized_prev, vix_previous_close]
-    B_adds: [participant_pro_net_index_calls, participant_pro_net_index_puts, participant_fii_net_index_calls,
-             participant_fii_net_index_puts, participant_client_net_index_calls, participant_client_net_index_puts]
-    C_adds: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_concentration_hhi, max_gex_strike_distance_pct,
-             call_wall_distance_pct, put_wall_distance_pct, max_pain_distance_pct, flip_naive_distance_pct,
-             has_flip, has_inferred_flip]
-  # Continuous T2: tuned LightGBM regression of log(rv_ratio_trailing); parameters chosen by validation MSE on
-  # the same inner split, then refit on the full training window.
-  regression:
-    outcome: rv_ratio_trailing
-    transform: log
   tuning:
     # Inside each walk's training window: inner-train, inner_embargo_cycles, then the last
-    # inner_validation_cycles as validation (time-ordered, purged). Parameters are chosen by the selection
-    # metric on validation; calibrators are fitted on the same validation predictions.
+    # inner_validation_cycles as validation (time-ordered, purged). Settings are chosen there by MSE, then
+    # refit on the full training window.
     inner_validation_cycles: 26
     inner_embargo_cycles: 1
-    selection_metric: log_loss
     grid:
       min_child_samples: [30, 60, 120]
       max_depth: [3, 5, -1]
       reg_lambda: [1.0, 10.0, 50.0]
-    calibrators: [platt, isotonic]
 
-t3_placebo:
-  # Placebo pseudo-strikes at the same distance from the 14:00 spot as the real max-GEX strike, on a random
-  # side (draws x days); the mirror strike (opposite side, same distance) is reported as a deterministic placebo.
-  draws: 2000
-  seed: 20261001
-  distance_buckets: 3   # equal-count buckets of start distance (% of spot)
+multiple_testing:
+  # Holm within pre-registered families; every other test is exploratory (unadjusted).
+  alpha: 0.05
+  families:
+    # Proposal research questions (forecast section; primary metric IC per walk, paired across the same walks).
+    # Fixed before the first neural run; RQ2 and RQ3 are Holm-adjusted within the family. The earlier
+    # exploratory families F1-F4 are in archive/configs/eval_exploratory.yaml.
+    RQ1: attention + GRU vs each classical rung with a defined IC (persistence, HAR, HAR + GEX, tuned LightGBM; historical mean is constant per walk, so it is an RMSE/QLIKE reference only); mean per-walk IC gain, 95% CI and paired t; a win over the ladder requires every comparison to reject at 5% (intersection-union, no Holm); QLIKE, RMSE, walks won and Diebold-Mariano are supporting
+    RQ2: DeepSets vs single-snapshot self-attention (interactions); single-snapshot self-attention vs attention + GRU (history); same paired IC test, Holm within the family; window-length and field-drop ablations are exploratory
+    RQ3: per-walk IC gain of attention + GRU over tuned LightGBM, walks after vs before the weekly-expiry rationalisation marker (Welch t); lot-size changes and volatility regimes are exploratory

@@ -5,10 +5,9 @@ from pathlib import Path
 
 import polars as pl
 
-from niftygex.clean.session import parse_time, session_settings
+from niftygex.clean.session import session_settings
 from niftygex.config import load_config
 from niftygex.io.parquet import describe_files, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
-from niftygex.targets.intraday_drift import t3_targets
 from niftygex.targets.vol_regime import LABELS, causal_terciles, daily_realized_vol, trailing_mean
 
 STAGE = "targets"
@@ -77,26 +76,9 @@ def main() -> None:
     if frame.filter(pl.col("target_available_at").is_not_null() & (pl.col("target_available_at") <= pl.col("snapshot_at"))).height:
         raise SystemExit("A T2 target is available at or before its snapshot")
 
-    # T3: last-90-minute move toward the snapshot's max-GEX strike.
-    t3_cfg = data["targets"]["t3"]
-    t3_snapshots = (
-        pl.read_parquet(Path(config["paths"]["features_root"]) / "aggregate" / "aggregate.parquet").filter(pl.col("target") == "t3")
-        .select("snapshot_at", "trade_date", "spot", "truncated_session", "missing_spot")
-        .join(pl.read_parquet(Path(config["paths"]["exposure_root"]) / "levels" / "levels.parquet").filter(pl.col("target") == "t3")
-              .select("snapshot_at", "max_gex_strike"), on="snapshot_at", how="left")
-    )
-    t3 = t3_targets(
-        t3_snapshots, pl.read_parquet(curated / "market" / "nifty_spot.parquet"),
-        path_start=parse_time(data["snapshot_grid"]["t3_daily"]), path_end_label=parse_time(t3_cfg["path_end_label"]),
-        min_path_bars=int(t3_cfg["min_path_bars"]),
-    )
-    if t3.filter(pl.col("target_available_at").is_not_null() & (pl.col("target_available_at") <= pl.col("snapshot_at"))).height:
-        raise SystemExit("A T3 target is available at or before its snapshot")
-
     targets_root = Path(config["paths"]["targets_root"])
-    with staged_outputs(targets_root, ["t2", "t3"], config) as stage:
+    with staged_outputs(targets_root, ["t2"], config) as stage:
         write_parquet(frame, stage / "t2" / "t2.parquet")
-        write_parquet(t3, stage / "t3" / "t3.parquet")
 
     year = pl.col("trade_date").dt.year().alias("year")
     labeled = frame.filter(pl.col("t2_label").is_not_null())
@@ -129,31 +111,11 @@ def main() -> None:
         },
         "rv_over_atm_iv_label_distribution": dict(frame.filter(pl.col("t2_iv_label").is_not_null()).group_by("t2_iv_label").len().sort("t2_iv_label").iter_rows()),
     })
-    t3_ok = t3.filter(pl.col("t3_reason") == "ok")
-    write_report(config, "targets_t3_report", {
-        "definition": {
-            "start": "snapshot spot at 14:00 (close of the 13:55-labeled bar, available 14:00)",
-            "end": f"close of the {t3_cfg['path_end_label']}-labeled bar (available 15:30)",
-            "strike": "max-GEX strike (absolute convention) at the T3 snapshot",
-            "label": "t3_label = |end - strike| < |start - strike|",
-            "exclusions": "truncated sessions, missing-spot days, no max-GEX strike, missing end bar, "
-                          f"fewer than {t3_cfg['min_path_bars']} path bars, start exactly at the strike",
-        },
-        "rows": t3.height,
-        "reason_counts": dict(t3.group_by("t3_reason").len().sort("t3_reason").iter_rows()),
-        "label_share_toward_by_year": t3_ok.group_by(year).agg(
-            pl.len().alias("labeled"), pl.col("t3_label").mean().alias("share_toward"),
-            pl.col("t3_touched_strike").mean().alias("share_touched_strike"),
-            pl.col("t3_distance_reduction_pct").median().alias("median_distance_reduction_pct"),
-        ).sort("year").to_dicts(),
-        "label_share_toward_overall": float(t3_ok["t3_label"].mean()) if t3_ok.height else None,
-        "start_distance_pct_median": float((t3_ok["t3_start_distance"] / t3_ok["t3_start_price"] * 100).median()) if t3_ok.height else None,
-    })
     write_manifest(
         config, STAGE,
         inputs=describe_files([curated / "futures" / "nifty_front_month.parquet", curated / "market" / "nifty_spot.parquet",
                                Path(config["paths"]["features_root"]) / "aggregate" / "aggregate.parquet"], config),
-        outputs=describe_files([targets_root / "t2" / "t2.parquet", targets_root / "t3" / "t3.parquet"], config),
+        outputs=describe_files([targets_root / "t2" / "t2.parquet"], config),
         counts={"rows": frame.height, "labeled": labeled.height},
         quality_flags={"reasons": dict(frame.group_by("t2_reason").len().iter_rows())},
         upstream={"features": features_manifest["config_hash"]},

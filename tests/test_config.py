@@ -15,3 +15,11 @@ def test_data_root_environment_override(monkeypatch, tmp_path: Path) -> None:
     config = load_config("local")
     assert config["paths"]["data_root"] == tmp_path
     assert config["paths"]["raw_root"] == tmp_path / "raw"
+
+
+def test_git_provenance_reports_commit() -> None:
+    from niftygex.io.provenance import git_provenance
+
+    info = git_provenance()
+    assert set(info) == {"git_commit", "git_dirty"}
+    assert info["git_commit"] is None or len(info["git_commit"]) == 40

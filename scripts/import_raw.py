@@ -17,6 +17,7 @@ from pathlib import Path
 
 from niftygex.config import config_hash, load_config
 from niftygex.io.parquet import file_sha256
+from niftygex.io.provenance import git_provenance
 
 SOURCE_SUBDIRECTORIES = ("options", "futures/NIFTY", "equity", "india_vix", "fiidii")
 
@@ -125,6 +126,7 @@ def write_manifest(path: Path, records: list[FileRecord], config: dict, *, copie
         "stage": "import_raw",
         "profile": config["profile"],
         "config_hash": config_hash(config),
+        **git_provenance(),
         "source_mode": "copy-only",
         "copied": copied,
         "skipped_identical_existing": skipped_identical,

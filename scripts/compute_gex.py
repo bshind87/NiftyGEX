@@ -14,7 +14,7 @@ import polars as pl
 from niftygex.config import load_config
 from niftygex.exposure.gex import dealer_signs, strike_gex
 from niftygex.exposure.levels import call_wall, flip_level, max_gex_strike, max_pain, put_wall
-from niftygex.exposure.selection import total_gex_expiries
+from niftygex.exposure.selection import TARGETS, total_gex_expiries
 from niftygex.exposure.snapshots import as_of, snapshot_grid
 from niftygex.io.parquet import describe_files, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
 from niftygex.validation.leakage import assert_available_by
@@ -124,7 +124,7 @@ def main() -> None:
     calendar = pl.read_parquet(curated / "calendar" / "trading_calendar.parquet").filter(pl.col("observed"))
     greek_files = sorted((greeks_root / "greeks").rglob("*.parquet"))
     expiries = {expiry_of(path): path for path in greek_files}
-    grid = snapshot_grid(calendar["trading_date"].to_list(), set(expiries), data["snapshot_grid"]).join(
+    grid = snapshot_grid(calendar["trading_date"].to_list(), data["snapshot_grid"]).join(
         calendar.select(pl.col("trading_date").alias("trade_date"), "missing_spot", "truncated_session", "data_quality"), on="trade_date", how="left",
     )
     snaps = grid.select("trade_date", "snapshot_at").unique()
@@ -175,9 +175,9 @@ def main() -> None:
 
     expiry_totals = nullify(chain.group_by(["snapshot_at", "trade_date", "expiry_date"]).agg(*sums, *flags, pl.len().alias("legs"))).sort(["snapshot_at", "expiry_date"])
     target_chain = grid.select("snapshot_at", "target").join(chain, on="snapshot_at")
-    target_chain = pl.concat([target_chain.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in ("t1", "t2", "t3")])
+    target_chain = pl.concat([target_chain.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in TARGETS])
     target_oi = grid.select("snapshot_at", "target", "trade_date").join(oi_chain, on=["snapshot_at", "trade_date"])
-    target_oi = pl.concat([target_oi.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in ("t1", "t2", "t3")])
+    target_oi = pl.concat([target_oi.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in TARGETS])
     totals = nullify(target_chain.group_by(["snapshot_at", "target"]).agg(
         *sums, *flags, pl.col("expiry_date").n_unique().alias("expiries"), pl.len().alias("legs"),
         (pl.col("days_to_expiry") == 0).any().alias("includes_same_day_expiry"),
@@ -220,7 +220,7 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
     totals, levels, gex_cfg = ctx["totals"], ctx["levels"], ctx["gex_cfg"]
     per_target: dict[str, Any] = {}
     selection: dict[str, Any] = {}
-    for target in ("t1", "t2", "t3"):
+    for target in TARGETS:
         part = totals.filter(pl.col("target") == target)
         with_chain = part.filter(pl.col("legs").is_not_null())
         available = part.filter(pl.col("gex_naive").is_not_null() & pl.col("gex_inferred").is_not_null())
@@ -236,7 +236,8 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
             "total_gex_crore": {name: _quantiles(part[f"gex_{name}"] / CRORE) for name in CONVENTIONS},
             "share_positive": {name: float((part[f"gex_{name}"].drop_nulls() > 0).mean()) for name in ("naive", "inferred")},
         }
-        on_expiry_day = with_chain.join(ctx["grid"].filter(pl.col("target") == "t1").select("trade_date").unique(), on="trade_date", how="semi")
+        expiry_days = ctx["chain"].filter(pl.col("expiry_date") == pl.col("trade_date")).select("trade_date").unique()
+        on_expiry_day = with_chain.join(expiry_days, on="trade_date", how="semi")
         selection[target] = {
             "same_day_expiry_rule": "kept" if gex_cfg["same_day_expiry_in_total_gex"][target] else "excluded",
             "snapshots_including_same_day_expiry": int(with_chain["includes_same_day_expiry"].sum()),
@@ -290,7 +291,7 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
     })
 
     level_summary: dict[str, Any] = {}
-    for target in ("t1", "t2", "t3"):
+    for target in TARGETS:
         part = levels.filter(pl.col("target") == target)
         has_spot = part.filter(pl.col("spot").is_not_null())
         entry: dict[str, Any] = {"snapshots": part.height, "with_spot_and_option_oi": has_spot.height}

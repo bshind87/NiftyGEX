@@ -8,29 +8,45 @@ from typing import Any
 import polars as pl
 
 from niftygex.clean.session import parse_time
+from niftygex.exposure.selection import TARGETS
 
 TIMEZONE = "Asia/Kolkata"
 
 
-def snapshot_grid(trading_dates: Iterable[date], expiry_dates: Iterable[date], grid: dict[str, Any]) -> pl.DataFrame:
-    """One row per (snapshot_at, target).
-
-    T2 and T3 run every trading day; T1 runs only on days that are an option expiry date.
-    """
-    expiries = set(expiry_dates)
+def snapshot_grid(trading_dates: Iterable[date], grid: dict[str, Any]) -> pl.DataFrame:
+    """One row per (snapshot_at, target): each target's ``<target>_daily`` time on every trading day."""
+    times = {target: parse_time(grid[f"{target}_daily"]) for target in TARGETS}
     rows: list[tuple[date, int, str]] = []
-    t2, t3 = parse_time(grid["t2_daily"]), parse_time(grid["t3_daily"])
-    t1 = [parse_time(value) for value in grid["t1_expiry_days"]]
     for day in sorted(set(trading_dates)):
-        rows.append((day, t2.hour * 60 + t2.minute, "t2"))
-        rows.append((day, t3.hour * 60 + t3.minute, "t3"))
-        if day in expiries:
-            rows.extend((day, value.hour * 60 + value.minute, "t1") for value in t1)
+        rows.extend((day, value.hour * 60 + value.minute, target) for target, value in times.items())
     frame = pl.DataFrame(rows, schema={"trade_date": pl.Date, "minute": pl.Int64, "target": pl.String}, orient="row")
     return frame.with_columns(
         (pl.col("trade_date").cast(pl.Datetime("us")) + pl.duration(minutes=pl.col("minute")))
         .dt.replace_time_zone(TIMEZONE).alias("snapshot_at")
     ).drop("minute").sort(["snapshot_at", "target"])
+
+
+def sequence_grid(trading_dates: Iterable[date], grid: dict[str, Any]) -> pl.DataFrame:
+    """Token-history snapshots: one row per (snapshot_at, target) every ``sequence_step_minutes`` from
+    ``sequence_start`` up to and including the target's daily snapshot ``prediction_at``.
+
+    ``lag`` counts steps back from the prediction snapshot (0 = the prediction snapshot itself).
+    """
+    start, step = parse_time(grid["sequence_start"]), int(grid["sequence_step_minutes"])
+    start_minute = start.hour * 60 + start.minute
+    rows: list[tuple[date, str, int, int, int]] = []
+    for target in TARGETS:
+        end = parse_time(grid[f"{target}_daily"])
+        end_minute = end.hour * 60 + end.minute
+        if (end_minute - start_minute) % step or end_minute < start_minute:
+            raise ValueError(f"{target}: the sequence must step from {start} to {end} in {step}-minute increments")
+        minutes = list(range(start_minute, end_minute + 1, step))
+        for day in sorted(set(trading_dates)):
+            rows.extend((day, target, m, end_minute, (end_minute - m) // step) for m in minutes)
+    frame = pl.DataFrame(rows, schema={"trade_date": pl.Date, "target": pl.String, "minute": pl.Int64, "end": pl.Int64, "lag": pl.Int32}, orient="row")
+    stamp = lambda column: (pl.col("trade_date").cast(pl.Datetime("us")) + pl.duration(minutes=pl.col(column))).dt.replace_time_zone(TIMEZONE)
+    return frame.with_columns(stamp("minute").alias("snapshot_at"), stamp("end").alias("prediction_at")).select(
+        "snapshot_at", "target", "trade_date", "prediction_at", "lag").sort(["snapshot_at", "target"])
 
 
 def as_of(

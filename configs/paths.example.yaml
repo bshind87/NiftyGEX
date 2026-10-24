@@ -11,7 +11,6 @@ raw:
   equity: data/raw/equity
   india_vix: data/raw/india_vix
   fiidii: data/raw/fiidii
-  official_closes: data/raw/official_closes
   bhavcopy: data/raw/bhavcopy
 
 curated_root: data/curated

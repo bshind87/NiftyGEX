@@ -30,7 +30,7 @@ The evaluation code lives in `src/niftygex_eval/` and is configured by `configs/
 
 `tests/test_harness.py` exercises all of these on synthetic data and on every walk of the real T2 table.
 
-**Current T2 layout.** 22 walks. The first training block starts at the 2020-03-05 cycle; test blocks run from 2021-03-05 to 2026-07-02, 1,303 test rows in total. The last block is partial.
+**Current forecasting layout.** 1,800 rows with a finite outcome, from 2019-02-21. 26 walks; test blocks run from 2020-02-24 to 2026-07-02, 1,556 test rows in total (30–65 per walk; the last block is partial).
 
 ## Results store (`niftygex_eval/results.py`)
 
@@ -46,81 +46,32 @@ The store lives at `outputs/results/` (gitignored).
 
 **Inputs.** `modeling_table` refuses to join features and targets whose manifests have different data config hashes.
 
-## Stage A (`scripts/run_stage_a.py`)
+## Forecasting ladder (`niftygex_eval/forecast/`, `scripts/run_forecast.py`, `scripts/report_forecast.py`)
 
-**Model.** OLS of `rv_ratio_trailing` (the T2 next-day RV ratio) on total GEX, plus the previous-close India VIX, with Newey–West (HAC, Bartlett) standard errors and `hac_maxlags` 5.
+This is the proposal's main evaluation path. Every model predicts `log(rv_ratio_trailing)` at the T2 15:15 snapshot and is scored on the same walks and rows (`configs/eval.yaml`, section `forecast`).
 
-**Specifications**
-- **Primary:** each convention's total GEX divided by the causal trailing mean of absolute total GEX over the last 250 T2 snapshots, with at least 60 present. This removes the many-fold growth in OI over the sample.
-- **Robustness:** the level in lakh crore rupees.
+**Modules:**
+- `interface.py`: `Forecaster`. The runner calls `tune(train, valid)` on the inner split (the last 26 training cycles after a 1-cycle inner embargo), then `fit(train)` on the full training window with the chosen settings, then `predict(test)`.
+- `runner.py`: `run_walks`, with `check_split` on both the outer and inner splits.
+- `metrics.py`: IC (Spearman, primary), RMSE, QLIKE and R² against a reference. QLIKE is `exp(2(y − ŷ)) − 2(y − ŷ) − 1`, because the trailing denominator cancels.
+- `compare.py`: paired per-walk tests with a 95% CI and walks won; Diebold–Mariano on daily losses with a Newey–West variance; scores by period.
+- `baselines.py`: historical mean, persistence, HAR-RV (OLS on log RV terms), HAR + GEX (ridge, alpha tuned on the inner split) and tuned LightGBM.
+- `table.py`: the forecasting table, adding normalized GEX and the outcome.
 
-**Robustness controls** (`robustness_controls`)
-- Previous-close VIX, ATM IV, days to expiry, the expiry-day flag, and today's RV ratio (`rv_ratio_trailing_lagged`).
-- `rv_ratio_trailing_lagged` is the previous T2 row's target, used only when that row's target day is the snapshot day.
-- It resolves at today's close, 15 minutes after the 15:15 snapshot. That is acceptable for a regression control but not for a predictive feature.
+**Outputs:**
+- `run_forecast.py`: one results-store run per model, plus `outputs/results/forecast_comparison.json`.
+- `report_forecast.py`: `outputs/reports/forecast_baselines.json`, `outputs/reports/figures/forecast_*.png` and `docs/findings_forecast.md`.
 
-**Joint magnitude + sign specification.** Normalized absolute GEX plus `sign(total GEX)` under the naive or inferred convention, with the robustness controls. It tests whether sign adds information beyond magnitude.
+The neural models (steps 4–6) will implement the same interface.
 
-**Samples.** Full sample, each year (VIX-control specification only), and before/after the `weekly_expiry_rationalisation` marker.
+## Multiple testing
 
-## Stage B (`scripts/run_stage_b.py`)
+Holm step-down (`niftygex_eval/multiple_testing.py`) is applied within the families pre-registered in `configs/eval.yaml` (`multiple_testing`). They were fixed before any neural run. Every test outside them is **exploratory** and reported unadjusted.
 
-**Models.** T2 tercile classifiers, fit inside the harness:
+| Family | Test | Decision rule |
+|---|---|---|
+| RQ1 | Attention + GRU vs persistence, HAR, HAR + GEX and tuned LightGBM: mean per-walk IC gain, 95% CI, paired t | Intersection–union: a win over the ladder requires every comparison to reject at 5% (no Holm). QLIKE, RMSE, walks won and Diebold–Mariano are supporting |
+| RQ2 | DeepSets vs single-snapshot attention (interactions); single-snapshot attention vs attention + GRU (history) | Holm within the family. Window-length and field-drop ablations are exploratory |
+| RQ3 | Per-walk IC gain of attention + GRU over tuned LightGBM, walks after vs before the weekly-expiry marker | Welch t. Lot-size and volatility-regime splits are exploratory |
 
-| Model | Features |
-|---|---|
-| `prior` | None: predicts the training class frequencies |
-| `vix_only` | Previous-close VIX only (logistic regression) |
-| `logistic` | All features (median imputation with missing-value indicators, standardization, multinomial logistic, C = 1) |
-| `lightgbm` | All features (multiclass, fixed parameters, no tuning) |
-
-**More models**
-
-| Model | What it is |
-|---|---|
-| `lightgbm_no_gex` | Ablation: LightGBM on calendar and vol-state features only (`no_gex_features`) |
-| `lightgbm_tuned` | Regularization (`min_child_samples`, `max_depth`, `reg_lambda`) chosen by validation log loss on a time-ordered inner split of each training window: inner-train, then a 1-cycle inner embargo, then the last 26 cycles. The inner split is purged and checked like an outer walk |
-| `lightgbm_tuned_platt` | The tuned model plus multinomial logistic calibration on log-probabilities, fitted on the inner validation predictions |
-| `lightgbm_tuned_isotonic` | The tuned model plus per-class isotonic calibration, renormalized, fitted on the same predictions |
-
-The tuned variants all use the model fitted on inner-train only, so a calibrator never sees its model's training rows.
-
-**Features.** The features come from `features_report.json`, minus `exclude_features` (currently `spot`). A target column in the feature list is a hard error.
-
-**Comparison output.** `outputs/results/stage_b_t2_comparison.json` reports, for every model:
-- pooled and mean per-walk AUC;
-- Brier, log loss and ECE;
-- AUC before and after the marker.
-
-It also holds paired per-walk comparisons (mean difference, paired t, wins) and the parameters chosen per walk.
-
-**Metrics.** Computed per walk and on pooled test predictions:
-- macro one-vs-rest AUC and AUC per class;
-- multiclass Brier score, log loss and accuracy;
-- class-wise reliability tables and ECE (10 bins);
-- splits before and after the regime marker.
-
-## T2 three-way ablation (`scripts/run_t2_ablation.py`)
-
-The feature sets are nested (`stage_b.feature_sets`):
-
-- **A:** vol state and calendar.
-- **B:** A plus participant positioning.
-- **C:** B plus normalized GEX (as in Stage A) and levels.
-
-**Tasks**
-- **Classification:** tuned LightGBM + Platt on terciles, using the label walks.
-- **Regression:** tuned LightGBM regression of log(next-day RV ratio), using walks over all rows with an outcome (26 walks, starting in 2020). Parameters are chosen by inner-validation MSE, then the model is refit on the full training window.
-
-**Outputs.** Per-walk paired tests (B vs A, C vs B, C vs A) on AUC, Brier and Spearman IC are written to `outputs/results/t2_ablation.json`. `scripts/write_findings_t2.py` renders `docs/findings_t2.md` from the store.
-
-## T3 placebo (`scripts/run_t3_placebo.py`)
-
-**Hit.** A day is a hit when `abs(end - K) < abs(start - K)`, with the 14:00 spot as start and the 15:25-bar close as end.
-
-**Placebo comparisons**
-- **Random-side pseudo-strike:** `K' = start ± abs(K - start)`, on a random side, `draws` times, giving a null distribution of hit rates. The p-value is the share of placebo hit rates at or above the actual hit rate.
-- **Mirror strike:** `start - (K - start)`. Only two positions exist at exactly matched distance, so the random-side placebo averages the actual and mirror outcomes.
-- **Sign test:** the actual vs mirror comparison is also run as a sign test on the days where exactly one of the two is hit.
-
-**Slices.** Results are reported overall, by start-distance bucket, by year, before/after the marker, and for expiry vs non-expiry days.
+The earlier exploratory families F1–F4 are archived with their analyses.
