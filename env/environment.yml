@@ -22,3 +22,5 @@ dependencies:
   - pip
   - pip:
       - ruff==0.9.7
+      # Word progress report (scripts/write_progress_report.py)
+      - python-docx==1.1.2

@@ -84,6 +84,7 @@ Run from the repository root with `PYTHONPATH=src`. Each stage refuses to run wh
    python scripts/validate_data.py        # exits non-zero on any timestamp or leakage violation
    python scripts/report_missing_data.py  # outputs/reports/missing_data.md
    python scripts/report_data.py          # features and token history: data_overview.json, figures, docs/findings_data.md
+   python scripts/write_progress_report.py  # midterm Word report -> docs/deliverables/ (gitignored; run after the two report scripts)
    ```
 
 4. **Forecasting ladder**: every rung on the same walks and rows, then the report with figures.
@@ -112,7 +113,10 @@ Full details are in `CLAUDE.md`, `docs/schema.md` and `docs/pricing.md`.
 
 ## Notebooks
 
-`notebooks/01_input_datasets.ipynb` is a presentation overview of the input datasets. Register the kernel once:
+- `notebooks/01_input_datasets.ipynb`: a presentation overview of the input datasets.
+- `notebooks/02_pipeline_and_features.ipynb`: one trading day (12 June 2026) followed through every stage, from the raw bar to the features, the token history and the target, with each feature's source and a leakage check.
+
+Register the kernel once:
 
 ```bash
 python -m ipykernel install --user --name niftygex --display-name "Python 3.11 (niftygex)"

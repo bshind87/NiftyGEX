@@ -3,6 +3,9 @@ data/*
 outputs/*
 !data/README.md
 
+# Course deliverables (Word reports) are shared directly, not committed
+docs/deliverables/
+
 # Generated market-data files
 *.parquet
 *.csv

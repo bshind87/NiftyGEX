@@ -230,3 +230,13 @@ def test_token_sequences_are_ordered_and_one_expiry_per_day() -> None:
     assert stats == {"after_prediction": 0, "late": 0, "negative_lag": 0}
     per_day = tokens.group_by("trade_date", "target").agg(pl.col("expiry_date").n_unique().alias("n")).collect()
     assert per_day["n"].max() == 1
+
+
+@pytest.mark.skipif(not (CONFIG["paths"]["reports_root"] / "features_report.json").exists(), reason="features stage not run")
+def test_every_feature_has_a_documented_source() -> None:
+    import json
+
+    from niftygex.features.lineage import LINEAGE
+
+    columns = json.loads((CONFIG["paths"]["reports_root"] / "features_report.json").read_text())["feature_columns"]
+    assert sorted(set(columns) - set(LINEAGE)) == []
