@@ -1,11 +1,11 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-10-24
+**Last updated:** 2026-11-02
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `ce2e671c1e4c` (forecast runs in `outputs/results/index.jsonl`)
 **Code:** git commit `b26d683` plus uncommitted changes, so manifests and runs record `git_dirty = true`. You make commits manually.
-**Tests:** 110 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 114 passed, 1 skipped (the model acceptance tests, until `nn/models.py` lands), 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** progress update, 2026-10-29
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -14,25 +14,10 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Pick up here, in order:
 
-1. **Commit your work (you).** Nothing since `b26d683` is committed:
-   - the forecasting path;
-   - the HAR features;
-   - the T1/T3 removal and the archive;
-   - the token history;
-   - the docs.
-2. **D2: volatility-state vector.** IV, RV and calendar, plus total GEX, for the model head; the next-expiry summary is optional.
-3. **E1: PyTorch**, pinned in `env/environment.yml`.
-4. **E2: `src/niftygex_eval/nn/`** behind the `Forecaster` interface:
-   - a dataset with a padding mask and the last-L slicing by `lag`;
-   - modules;
-   - the DeepSets, Attention and AttentionGRU models;
-   - the trainer.
-5. **E3: sanity checks:**
-   - a tiny batch overfits;
-   - shuffling strike order leaves the output unchanged;
-   - padding leaves the output unchanged;
-   - the model has about 100k parameters.
-6. **Before Oct 29:** review `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` and submit it. Regenerate with `scripts/write_progress_report.py` after any change.
+1. **You: commit and push in GitHub Desktop, then send Asad `docs/handoff_asad.md`** and an invite to the repo. His task (E2b) needs only the repo, not the data.
+2. **E2c: `nn/trainer.py`.** The Forecaster wrapper (Huber, AdamW, early stopping, seeds), developed against a stand-in model until Asad's lands.
+3. **Runner script and report.** `scripts/run_neural.py` and the model results report with figures, with the same pattern as the baselines. Rerun the baselines then too: the eval config hash changed when the `neural` section was added.
+4. **After Asad's merge (target 8 Nov):** full runs (26 walks × 3 models × 3 seeds), then the RQ1–RQ3 tests and the window and field-drop ablations.
 
 ## Milestones (proposal slide 16)
 
@@ -101,16 +86,18 @@ Pick up here, in order:
 | ID | Task | Status | Summary |
 |---|---|---|---|
 | D1 | Sequence snapshot grid | ✅ | 72 snapshots per day, 09:20–15:15 (`snapshot_grid.sequence_start`, `sequence_step_minutes`); the model slices the last L (12 = one hour by default; 24 and 72 for the window ablation). One expiry per day, so a history never switches contract |
-| D2 | Volatility-state vector | ⏳ | IV, RV and calendar, plus total GEX, so the nearest-expiry tokens are not at a disadvantage to all-expiry GEX |
+| D2 | Volatility-state vector | ✅ | 14 columns from the forecast table (`neural.state_columns`): IV, skew, term slope, intraday and 1/5/20-day RV, previous VIX, days to expiry, expiry-day flag, normalized GEX (3 conventions) and the inferred sign. Logs of positive levels; no data-layer change |
 | D3 | Leakage test and report | ✅ | Validation and stage-contract checks: every token is available by its snapshot, each sequence snapshot is ≤ its prediction snapshot, one expiry per day, and lag-0 tokens equal the GEX chain. The data report has 4 figures | `docs/findings_data.md`, `outputs/reports/data_overview.json` |
 
-### E. Neural models, steps 4–6 ⏳
+### E. Neural models, steps 4–6 🔄
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
-| E1 | PyTorch in the pinned env | ⏳ | — |
-| E2 | `src/niftygex_eval/nn/` | ⏳ | `dataset.py` (padding mask, per-walk scaling, missing flags), `modules.py`, `models.py` (DeepSets, Attention, AttentionGRU), `trainer.py` (Huber, AdamW, early stopping, 3–5 seeds) |
-| E3 | Sanity checks | ⏳ | Overfit a tiny batch; shuffling strike order leaves outputs unchanged; padding leaves outputs unchanged; about 100k parameters |
+| E1 | PyTorch in the pinned env | ✅ | `pytorch=2.10.0` from conda-forge (the pip wheel's bundled OpenMP aborts next to LightGBM's) |
+| E2a | `nn/dataset.py` | ✅ | Tokens to `[days, L, N, 15]` tensors with padding mask (index −1 = 15:15), signed logs, a per-walk scaler fitted on training days, missing values as 0. On real data, window 12: 153 MB, 0.5 s, 1,794 of 1,800 days with 15:15 tokens; window 72: 941 MB Tests: `tests/test_nn_dataset.py` |
+| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | 🔄 | **Assigned to Asad** (`docs/handoff_asad.md`): check-in 5 Nov, target merge 8 Nov. Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
+| E2c | `nn/trainer.py` | ⏳ | Forecaster wrapper: Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13 (`neural.training`) |
+| E3 | Sanity checks | 🔄 | Model-level checks are part of Asad's acceptance tests. The end-to-end check (a model trains on one real walk) comes after E2c |
 | E4 | Runs and report | ⏳ | Same runner and report pattern as C |
 
 ### F. Research-question tests and write-up ⏳
@@ -228,6 +215,11 @@ From `outputs/reports/missing_data.md`:
   - `python-docx==1.1.2` is pinned in the env for it.
 - Feature lineage (source and availability per feature and token field) lives in `src/niftygex/features/lineage.py`. A test checks every built feature has an entry.
 - Added `notebooks/02_pipeline_and_features.ipynb`.
+
+**2026-11-02**
+- **Work split.** Asad owns `nn/models.py` (task E2b) against a fixed interface and acceptance tests (`docs/handoff_asad.md`); everything that touches the pipeline, harness and statistics stays here. You make all commits through GitHub Desktop.
+- **PyTorch 2.10 from conda-forge**, not pip: the pip wheel's own OpenMP aborts on import next to LightGBM.
+- **Neural inputs** (`configs/eval.yaml` → `neural`): 15 token fields, a 14-column volatility state, window L = 12 by default; model defaults d = 64, 4 heads, 2 layers, GRU 64; training with Huber, AdamW and seeds 11/12/13.
 
 ## Open questions
 

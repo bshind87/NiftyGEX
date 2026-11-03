@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest==8.3.4", "ruff==0.9.7"]
-eval = ["scikit-learn==1.5.2", "statsmodels==0.14.4", "lightgbm==4.5.0", "pandas==2.2.3", "matplotlib==3.9.2"]
+eval = ["scikit-learn==1.5.2", "statsmodels==0.14.4", "lightgbm==4.5.0", "pandas==2.2.3", "matplotlib==3.9.2", "torch==2.10.0"]
 notebook = ["ipykernel==6.29.5", "nbformat==5.10.4", "nbclient==0.10.2"]
 report = ["python-docx==1.1.2"]
 

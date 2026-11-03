@@ -57,6 +57,24 @@ forecast:
       max_depth: [3, 5, -1]
       reg_lambda: [1.0, 10.0, 50.0]
 
+neural:
+  # Proposal steps 4-6 (src/niftygex_eval/nn): same target, walks and rows as the forecast ladder.
+  models: [deepsets, attention, attention_gru]
+  window: 12                # snapshots of history L (5 minutes apart, ending at 15:15); ablation: 24, 72
+  # Per-contract token fields (data/features/tokens); heavy-tailed ones get sign(x) * log1p(|x|) before scaling.
+  token_features: [log_moneyness, is_call, iv, gamma, delta, strike_gex_absolute_crore, strike_gex_naive_crore,
+                   open_interest_contracts, oi_change_since_previous_close_pct, volume_today, volume_to_oi,
+                   days_to_expiry, time_to_expiry, oi_missing, previous_oi_missing]
+  signed_log_features: [strike_gex_absolute_crore, strike_gex_naive_crore, open_interest_contracts, volume_today, volume_to_oi]
+  # Volatility-state vector for the model head (one row per day, from the forecast table); positive levels get logs.
+  state_columns: [atm_iv, skew_25d, term_slope, rv_intraday_so_far_annualized, rv_trailing_1d_annualized_prev,
+                  rv_trailing_5d_annualized_prev, rv_trailing_20d_annualized_prev, vix_previous_close, days_to_expiry,
+                  is_expiry_day, gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_sign_inferred]
+  log_state_columns: [atm_iv, rv_intraday_so_far_annualized, rv_trailing_1d_annualized_prev, rv_trailing_5d_annualized_prev,
+                      rv_trailing_20d_annualized_prev, vix_previous_close]
+  model: {d_model: 64, heads: 4, layers: 2, ff_dim: 128, dropout: 0.1, gru_hidden: 64, head_hidden: 32}
+  training: {huber_delta: 1.0, lr: 0.001, weight_decay: 0.01, batch_size: 32, max_epochs: 200, patience: 20, seeds: [11, 12, 13]}
+
 multiple_testing:
   # Holm within pre-registered families; every other test is exploratory (unadjusted).
   alpha: 0.05
