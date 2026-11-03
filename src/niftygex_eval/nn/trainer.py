@@ -120,6 +120,32 @@ class NeuralForecaster(Forecaster):
         return {"stop_epoch_mean": float(np.mean(self.epochs_)) if self.epochs_ else None,
                 "stop_epoch_max": int(max(self.epochs_)) if self.epochs_ else None, "seeds": len(self.models_)}
 
+    @torch.no_grad()
+    def attention(self, frame: pl.DataFrame) -> pl.DataFrame:
+        """Pooling attention weights per real contract, averaged over seeds and heads, in long format.
+
+        Columns: snapshot_at (the row's prediction snapshot), lag, token_index, weight, plus weight_head_<h>.
+        Empty for models without attention weights (DeepSets).
+        """
+        rows = self._rows(frame)
+        tokens, mask, state = self._tensors(rows)
+        stacked = []
+        for model in self.models_:
+            model.eval()
+            _, weights = model(tokens, mask, state, return_attention=True)
+            if weights is None:
+                return pl.DataFrame()
+            stacked.append(weights.cpu().numpy())
+        weights = np.mean(stacked, axis=0)                     # [D, L_used, heads, N]
+        used = self.inputs.mask[rows][:, -weights.shape[1]:]   # [D, L_used, N]
+        d, t, k = np.nonzero(used)
+        lag = weights.shape[1] - 1 - t
+        snapshot = frame["snapshot_at"].to_list()
+        out = {"snapshot_at": [snapshot[i] for i in d], "lag": lag.astype(np.int32), "token_index": k.astype(np.int32),
+               "weight": weights[d, t, :, k].mean(axis=-1)}
+        out.update({f"weight_head_{h}": weights[d, t, h, k] for h in range(weights.shape[2])})
+        return pl.DataFrame(out)
+
     def predict(self, frame: pl.DataFrame) -> np.ndarray:
         data = self._tensors(self._rows(frame))
         return np.mean([self._predict(model, data) for model in self.models_], axis=0)

@@ -90,3 +90,49 @@ def test_without_refit_the_early_stopped_models_are_kept() -> None:
     tuned = list(model.models_)
     model.fit(table[:120], "y")
     assert model.models_ == tuned and model.predict(table[120:]).shape == (30,)
+
+
+class AttentionStandIn(MeanPool):
+    """Stand-in that also returns pooling weights: uniform over the last snapshot's real contracts, 2 heads."""
+
+    def forward(self, tokens, mask, state, return_attention=False):
+        out = super().forward(tokens, mask, state)
+        if not return_attention:
+            return out
+        m = mask[:, -1:].float()
+        weights = (m / m.sum(-1, keepdim=True).clamp(min=1.0)).unsqueeze(2).expand(-1, -1, 2, -1)
+        return out, weights
+
+
+def test_attention_weights_come_back_per_real_contract() -> None:
+    table, inputs = synthetic(days=150)
+    model = NeuralForecaster("stand_in", inputs, NEURAL, factory=lambda *a: AttentionStandIn(2, 2))
+    model.tune(table[:90], table[95:120], "y")
+    model.fit(table[:120], "y")
+    frame = model.attention(table[120:])
+    real = int(inputs.mask[120:, -1].sum())
+    assert frame.height == real and set(frame["lag"].unique().to_list()) == {0}
+    assert frame.group_by("snapshot_at").agg(pl.col("weight").sum())["weight"].to_numpy() == pytest.approx(1.0)
+    assert {"weight_head_0", "weight_head_1"} <= set(frame.columns)
+
+
+def test_models_without_weights_give_an_empty_attention_frame() -> None:
+    table, inputs = synthetic(days=150)
+
+    class NoWeights(MeanPool):
+        def forward(self, tokens, mask, state, return_attention=False):
+            out = super().forward(tokens, mask, state)
+            return (out, None) if return_attention else out
+
+    model = NeuralForecaster("stand_in", inputs, NEURAL, factory=lambda *a: NoWeights(2, 2))
+    model.fit(table[:100], "y")
+    assert model.attention(table[100:]).height == 0
+
+
+def test_runner_collects_per_walk_outputs() -> None:
+    table, inputs = synthetic()
+    walks = build_walks(table["cycle"].unique().to_list(), test_cycles=8, embargo_cycles=1, min_train_cycles=30)
+    seen = []
+    _, per_walk = run_walks(table, walks, lambda: NeuralForecaster("stand_in", inputs, NEURAL, factory=factory), "y",
+                            inner_validation_cycles=6, inner_embargo_cycles=1, collect=lambda model, walk, test: seen.append((walk.walk_id, test.height)))
+    assert [w for w, _ in seen] == per_walk["walk_id"].to_list() and all(n > 0 for _, n in seen)

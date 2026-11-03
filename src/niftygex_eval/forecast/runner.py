@@ -13,11 +13,13 @@ KEEP = ["snapshot_at", "trade_date", "cycle"]
 
 
 def run_walks(table: pl.DataFrame, walks: list[Walk], make_model: Callable[[], Forecaster], outcome: str, *,
-              inner_validation_cycles: int, inner_embargo_cycles: int, keep: list[str] | None = None) -> tuple[pl.DataFrame, pl.DataFrame]:
+              inner_validation_cycles: int, inner_embargo_cycles: int, keep: list[str] | None = None,
+              collect: Callable[[Forecaster, Walk, pl.DataFrame], None] | None = None) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Fresh model per walk; returns (test predictions with ``y`` and ``prediction``, per-walk metrics).
 
     ``table`` must already be restricted to rows with a finite outcome. ``keep`` adds columns (for example a
-    regime flag) to the prediction rows for later breakdowns.
+    regime flag) to the prediction rows for later breakdowns. ``collect(model, walk, test)`` is called after each
+    walk's predictions, so a caller can keep extra outputs such as attention weights.
     """
     predictions, per_walk = [], []
     for walk in walks:
@@ -32,6 +34,8 @@ def run_walks(table: pl.DataFrame, walks: list[Walk], make_model: Callable[[], F
         model.tune(inner_train, valid, outcome)
         model.fit(train, outcome)
         y, prediction = test[outcome].to_numpy(), model.predict(test)
+        if collect is not None:
+            collect(model, walk, test)
         predictions.append(test.select(*KEEP, *(keep or [])).with_columns(
             pl.lit(walk.walk_id).alias("walk_id"), pl.Series("y", y), pl.Series("prediction", prediction)))
         per_walk.append({"walk_id": walk.walk_id, "train_rows": train.height, "test_rows": test.height,

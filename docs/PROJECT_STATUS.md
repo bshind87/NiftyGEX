@@ -5,7 +5,7 @@
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** latest commit `a6f20eb`, plus uncommitted changes since (the trainer, runner, RQ tests and results report), so current runs record `git_dirty = true`. Commits are made through GitHub Desktop.
-**Tests:** 118 passed, 1 skipped (the model acceptance tests, until `nn/models.py` lands), 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 121 passed, 1 skipped (the model acceptance tests, until `nn/models.py` lands), 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** model results by mid-November (own target); final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -20,8 +20,9 @@ Goal: results done by mid-November. Pick up here, in order:
    - `scripts/report_results.py`
 2. **Ablations (exploratory):**
    - window: `run_neural.py --models attention_gru --window 24` (about 3.5 hours) and `--window 72` (about 10 hours; one seed, or on HPC);
-   - one field-drop run without the OI-change fields.
-3. **Final write-up:** the results section, attention maps (task 8), the slides (Dec 3/10) and the final report (Dec 17).
+   - one field-drop run without the OI-change field: `run_neural.py --drop oi_change_since_previous_close_pct`.
+3. **Attention maps:** `run_neural.py --save-attention` stores the weights. The plotting and case-study script is still to write.
+4. **Final write-up:** a final-report generator (Word, filled from the results files), the slides (Dec 3/10) and the final report (Dec 17).
 
 ## Milestones (proposal slide 16)
 
@@ -102,7 +103,7 @@ Goal: results done by mid-November. Pick up here, in order:
 | E2a | `nn/dataset.py` | ✅ | Tokens to `[days, L, N, 15]` tensors with padding mask (index −1 = 15:15), signed logs, a per-walk scaler fitted on training days, missing values as 0. On real data, window 12: 153 MB, 0.5 s, 1,794 of 1,800 days with 15:15 tokens; window 72: 941 MB Tests: `tests/test_nn_dataset.py` |
 | E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | 🔄 | Being built against the fixed interface in `docs/handoff_asad.md`: check-in 5 Nov, target merge 8 Nov. Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
-| E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window`, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
+| E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
 | E3 | Sanity checks | 🔄 | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
 | E4 | Runs and report | ⏳ | Waiting for `nn/models.py`. The main run is estimated at about 2 hours on the laptop |
 
