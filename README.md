@@ -92,6 +92,9 @@ Run from the repository root with `PYTHONPATH=src`. Each stage refuses to run wh
    ```bash
    python scripts/run_forecast.py         # results store + outputs/results/forecast_comparison.json
    python scripts/report_forecast.py      # outputs/reports/forecast_baselines.json, figures, docs/findings_forecast.md
+   python scripts/run_neural.py           # neural steps 4-6 (needs src/niftygex_eval/nn/models.py); about 2 hours on a laptop
+   python scripts/run_rq_tests.py         # pre-registered RQ1-RQ3 tests -> outputs/results/rq_tests.json
+   python scripts/report_results.py       # full ladder and RQ results, figures, docs/findings_models.md
    ```
 
 

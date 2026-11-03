@@ -36,5 +36,5 @@ def run_walks(table: pl.DataFrame, walks: list[Walk], make_model: Callable[[], F
             pl.lit(walk.walk_id).alias("walk_id"), pl.Series("y", y), pl.Series("prediction", prediction)))
         per_walk.append({"walk_id": walk.walk_id, "train_rows": train.height, "test_rows": test.height,
                          "test_start": test["trade_date"].min(), "test_end": test["trade_date"].max(),
-                         **regression_metrics(y, prediction)})
+                         **regression_metrics(y, prediction), **getattr(model, "summary", dict)()})
     return pl.concat(predictions), pl.DataFrame(per_walk)

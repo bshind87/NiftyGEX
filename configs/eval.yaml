@@ -73,7 +73,12 @@ neural:
   log_state_columns: [atm_iv, rv_intraday_so_far_annualized, rv_trailing_1d_annualized_prev, rv_trailing_5d_annualized_prev,
                       rv_trailing_20d_annualized_prev, vix_previous_close]
   model: {d_model: 64, heads: 4, layers: 2, ff_dim: 128, dropout: 0.1, gru_hidden: 64, head_hidden: 32}
-  training: {huber_delta: 1.0, lr: 0.001, weight_decay: 0.01, batch_size: 32, max_epochs: 200, patience: 20, seeds: [11, 12, 13]}
+  # Early stopping on the inner validation split; refit: false predicts with those early-stopped models (no retrain on
+  # the full window), which halves training time. Measured per epoch on the largest walk (1,642 days): DeepSets 0.3 s
+  # on CPU; attention 2.0 s and attention + GRU 6.5 s on Apple-silicon MPS (24.6 s on CPU).
+  training: {huber_delta: 1.0, lr: 0.001, weight_decay: 0.01, batch_size: 64, max_epochs: 60, patience: 8, refit: false,
+             seeds: [11, 12, 13]}
+  devices: {deepsets: cpu, attention: mps, attention_gru: mps}   # falls back to cpu when mps is unavailable
 
 multiple_testing:
   # Holm within pre-registered families; every other test is exploratory (unadjusted).

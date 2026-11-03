@@ -75,3 +75,20 @@ class Scaler:
         scaled = np.where(mask[..., None] & np.isfinite(scaled), scaled, 0.0).astype(np.float32)
         scaled_state = (state - self.state_mean) / self.state_std
         return scaled, np.nan_to_num(scaled_state, nan=0.0).astype(np.float32)
+
+
+@dataclass
+class NeuralInputs:
+    """Unscaled tensors for every row of the forecast table, looked up by ``snapshot_at``."""
+    tokens: np.ndarray   # [D, L, N, F]
+    mask: np.ndarray     # [D, L, N]
+    state: np.ndarray    # [D, S]
+    row: dict            # snapshot_at -> index into the arrays
+
+
+def build_inputs(table: pl.DataFrame, tokens_root: Path, neural: dict, window: int | None = None) -> NeuralInputs:
+    """Token history (last ``window`` snapshots, default ``neural.window``) and volatility state for every table row."""
+    window = int(window or neural["window"])
+    data = load_token_tensors(tokens_root, table["snapshot_at"], window, list(neural["token_features"]), list(neural["signed_log_features"]))
+    state = state_matrix(table, list(neural["state_columns"]), list(neural["log_state_columns"]))
+    return NeuralInputs(data.tokens, data.mask, state, {t: i for i, t in enumerate(table["snapshot_at"].to_list())})

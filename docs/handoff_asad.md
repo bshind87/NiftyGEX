@@ -1,4 +1,4 @@
-# Task 4: the neural models (for Asad)
+# Task 4: the neural models (hand-off brief)
 
 **Goal:** write the three neural models from the proposal (slides 12 and 14, steps 4–6) as plain PyTorch modules.
 
@@ -6,7 +6,7 @@
 
 **What you need:** only the repo and the environment. No project data is needed: the tests use random tensors shaped like the real token history.
 
-**What happens after:** once the tests pass, Bhalchandra connects your models to the real data and the walk-forward harness, and runs the training. That part (dataset, trainer, runs) is not part of this task.
+**What happens after:** once the tests pass, the models are connected to the real data and the walk-forward harness, and trained. That part (dataset, trainer, runs) is not part of this task.
 
 ## 1. Setup (about 15 minutes)
 
@@ -18,16 +18,16 @@ conda activate niftygex
 PYTHONPATH=src pytest -q                   # everything passes; tests/test_nn_models.py is skipped until your file exists
 ```
 
-Work on a branch, for example `asad/models`, and open a pull request when the tests pass. Bhalchandra reviews and merges it.
+Work on a branch, for example `models`, and open a pull request when the tests pass; it is reviewed and merged from there.
 
 ## 2. Where your code goes
 
-| File | Owner | Contents |
+| File | This task? | Contents |
 |---|---|---|
-| `src/niftygex_eval/nn/models.py` | **you** | The modules and `build_model` |
-| `src/niftygex_eval/nn/dataset.py` | Bhalchandra | Real tokens → tensors (not needed for this task) |
-| `src/niftygex_eval/nn/trainer.py` | Bhalchandra | Training loop, early stopping, seeds |
-| `tests/test_nn_models.py` | given | Your acceptance tests; please don't edit them, and ask if one seems wrong |
+| `src/niftygex_eval/nn/models.py` | **yes** | The modules and `build_model` |
+| `src/niftygex_eval/nn/dataset.py` | no (exists) | Real tokens → tensors |
+| `src/niftygex_eval/nn/trainer.py` | no | Training loop, early stopping, seeds |
+| `tests/test_nn_models.py` | given | The acceptance tests; please don't edit them, and ask if one seems wrong |
 
 ## 3. The interface (exact)
 
@@ -112,7 +112,7 @@ The full file runs in a few seconds on a laptop CPU.
 ## 7. Timeline and check-in
 - **Check-in on 5 November:** share which tests pass, even if not all do.
 - **Target: pull request merged by 8 November.** Training runs start on 9 November.
-- If something in the spec is unclear or a test looks wrong, message Bhalchandra early rather than working around it.
+- If something in the spec is unclear or a test looks wrong, ask early rather than working around it.
 
 ## 8. After this task
 

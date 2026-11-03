@@ -3,28 +3,33 @@
 **Last updated:** 2026-11-02
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
-**Eval config hash:** `ce2e671c1e4c` (forecast runs in `outputs/results/index.jsonl`)
-**Code:** git commit `b26d683` plus uncommitted changes, so manifests and runs record `git_dirty = true`. You make commits manually.
-**Tests:** 114 passed, 1 skipped (the model acceptance tests, until `nn/models.py` lands), 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
-**Next milestone:** progress update, 2026-10-29
+**Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
+**Code:** latest commit `a6f20eb`, plus uncommitted changes since (the trainer, runner, RQ tests and results report), so current runs record `git_dirty = true`. Commits are made through GitHub Desktop.
+**Tests:** 118 passed, 1 skipped (the model acceptance tests, until `nn/models.py` lands), 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Next milestone:** model results by mid-November (own target); final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
 
 ## Next session
 
-Pick up here, in order:
+Goal: results done by mid-November. Pick up here, in order:
 
-1. **You: commit and push in GitHub Desktop, then send Asad `docs/handoff_asad.md`** and an invite to the repo. His task (E2b) needs only the repo, not the data.
-2. **E2c: `nn/trainer.py`.** The Forecaster wrapper (Huber, AdamW, early stopping, seeds), developed against a stand-in model until Asad's lands.
-3. **Runner script and report.** `scripts/run_neural.py` and the model results report with figures, with the same pattern as the baselines. Rerun the baselines then too: the eval config hash changed when the `neural` section was added.
-4. **After Asad's merge (target 8 Nov):** full runs (26 walks × 3 models × 3 seeds), then the RQ1–RQ3 tests and the window and field-drop ablations.
+1. **Once `nn/models.py` is merged (target 8 Nov):** `PYTHONPATH=src pytest tests/test_nn_models.py`, then the main run. It takes about 2 hours on the laptop (26 walks × 3 models × 3 seeds):
+   - `scripts/run_neural.py`
+   - `scripts/run_rq_tests.py`
+   - `scripts/report_results.py`
+2. **Ablations (exploratory):**
+   - window: `run_neural.py --models attention_gru --window 24` (about 3.5 hours) and `--window 72` (about 10 hours; one seed, or on HPC);
+   - one field-drop run without the OI-change fields.
+3. **Final write-up:** the results section, attention maps (task 8), the slides (Dec 3/10) and the final report (Dec 17).
 
 ## Milestones (proposal slide 16)
 
 | Date | Milestone | Status |
 |---|---|---|
 | 2026-10-08 | Proposal | ✅ Presented with deck v9 |
-| 2026-10-29 | Data pipeline, first baselines | 🔄 The pipeline and ladder steps 0–3 are done; the slides are not yet drafted |
+| 2026-10-29 | Data pipeline, first baselines | ✅ The midterm Word report was generated (`docs/deliverables/`); its submission is not recorded here ❓ |
+| mid-November | Model results (own target) | 🔄 Trainer, runner, RQ tests and report ready; waiting for `nn/models.py` |
 | November | Model, switch-off tests, rule-change tests | ⏳ |
 | 2026-12-03 / 12-10, 12-17 | Final presentation, code and report | ⏳ |
 
@@ -32,13 +37,13 @@ Pick up here, in order:
 
 | Proposal item | Status | Evidence |
 |---|---|---|
-| Step 0: historical mean / persistence | ✅ | runs `92f3da4081b08fc6`, `d19d4490d9b024f4` |
-| Step 1: HAR-RV | ✅ | run `c258929b5da6a6e3` |
-| Step 2: HAR + GEX | ✅ | run `d1bfee2ee7b640da` |
-| Step 3: tuned LightGBM on ~40 summaries | ✅ | run `bd11da0a4d1536ff` |
-| Step 4: DeepSets | ⏳ | Needs D1–D3 and E1–E3 |
-| Step 5: single-snapshot self-attention | ⏳ | Needs E1–E3 |
-| Step 6: attention + GRU (our model) | ⏳ | Needs D1–D3 (token history) and E1–E3 |
+| Step 0: historical mean / persistence | ✅ | runs `dec5b422449712f0`, `e648d7637a3743f3` |
+| Step 1: HAR-RV | ✅ | run `cc6af41802a38fc8` |
+| Step 2: HAR + GEX | ✅ | run `cb4cb0f9374dbeab` |
+| Step 3: tuned LightGBM on ~40 summaries | ✅ | run `85c1129f0c7cbb1a` |
+| Step 4: DeepSets | 🔄 | Inputs, trainer and runner ready (D, E2a, E2c, E2d); waiting for `nn/models.py` (E2b) |
+| Step 5: single-snapshot self-attention | 🔄 | Inputs, trainer and runner ready (D, E2a, E2c, E2d); waiting for `nn/models.py` (E2b) |
+| Step 6: attention + GRU (our model) | 🔄 | Inputs, trainer and runner ready (D, E2a, E2c, E2d); waiting for `nn/models.py` (E2b) |
 | RQ1: does reading every contract predict better? | ⏳ | Test pre-registered in `configs/eval.yaml` (`multiple_testing.RQ1`) |
 | RQ2: why does it win? | ⏳ | Pre-registered (`RQ2`) |
 | RQ3: does it survive rule changes? | ⏳ | Pre-registered (`RQ3`). The before/after split already runs for the classical ladder |
@@ -95,10 +100,11 @@ Pick up here, in order:
 |---|---|---|---|
 | E1 | PyTorch in the pinned env | ✅ | `pytorch=2.10.0` from conda-forge (the pip wheel's bundled OpenMP aborts next to LightGBM's) |
 | E2a | `nn/dataset.py` | ✅ | Tokens to `[days, L, N, 15]` tensors with padding mask (index −1 = 15:15), signed logs, a per-walk scaler fitted on training days, missing values as 0. On real data, window 12: 153 MB, 0.5 s, 1,794 of 1,800 days with 15:15 tokens; window 72: 941 MB Tests: `tests/test_nn_dataset.py` |
-| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | 🔄 | **Assigned to Asad** (`docs/handoff_asad.md`): check-in 5 Nov, target merge 8 Nov. Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
-| E2c | `nn/trainer.py` | ⏳ | Forecaster wrapper: Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13 (`neural.training`) |
-| E3 | Sanity checks | 🔄 | Model-level checks are part of Asad's acceptance tests. The end-to-end check (a model trains on one real walk) comes after E2c |
-| E4 | Runs and report | ⏳ | Same runner and report pattern as C |
+| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | 🔄 | Being built against the fixed interface in `docs/handoff_asad.md`: check-in 5 Nov, target merge 8 Nov. Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
+| E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
+| E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window`, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
+| E3 | Sanity checks | 🔄 | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
+| E4 | Runs and report | ⏳ | Waiting for `nn/models.py`. The main run is estimated at about 2 hours on the laptop |
 
 ### F. Research-question tests and write-up ⏳
 
@@ -112,7 +118,7 @@ Pick up here, in order:
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
 | F7 | Final report, code and reproducibility pass | ⏳ | A clean-commit end-to-end rerun is still to do |
 
-### G. Owner and external tasks
+### G. External tasks
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
@@ -120,7 +126,6 @@ Pick up here, in order:
 | G2 | From Sunil: missing OI (69 days), the truncated 2022-01-06 expiry, 8 missing spot days | ⏳ | Listed in `missing_data.md` |
 | G3 | Sunil's written permission for code and data | ⏳ | Not on file |
 | G4 | Verify lot sizes, the 2024-11-20 marker and special sessions against NSE circulars | ⏳ | Marked VERIFY in `configs/regimes.yaml` |
-| G5 | Work split with Asad | ⏳ | Not recorded |
 
 ### H. Earlier exploratory work (archived 2026-10-14)
 
@@ -217,9 +222,12 @@ From `outputs/reports/missing_data.md`:
 - Added `notebooks/02_pipeline_and_features.ipynb`.
 
 **2026-11-02**
-- **Work split.** Asad owns `nn/models.py` (task E2b) against a fixed interface and acceptance tests (`docs/handoff_asad.md`); everything that touches the pipeline, harness and statistics stays here. You make all commits through GitHub Desktop.
+- **Models built against a fixed interface.** `nn/models.py` (E2b) is specified by an interface and acceptance tests (`docs/handoff_asad.md`), so it can be developed without the data. Commits go through GitHub Desktop. Contributions are not tracked per person.
 - **PyTorch 2.10 from conda-forge**, not pip: the pip wheel's own OpenMP aborts on import next to LightGBM.
-- **Neural inputs** (`configs/eval.yaml` → `neural`): 15 token fields, a 14-column volatility state, window L = 12 by default; model defaults d = 64, 4 heads, 2 layers, GRU 64; training with Huber, AdamW and seeds 11/12/13.
+- **Neural inputs** (`configs/eval.yaml` → `neural`): 15 token fields, a 14-column volatility state, window L = 12 by default; model defaults d = 64, 4 heads, 2 layers, GRU 64; training with Huber, AdamW and seeds 11/12/13.- **Target:** results by mid-November.
+- **Neural training without refit:** each seed's early-stopped model (inner split) predicts the test block. Settings: at most 60 epochs, patience 8, batch 64, DeepSets on CPU and the attention models on MPS. This cuts the main run to about 2 hours.
+- **HPC is optional:** only for the 72-snapshot window ablation. The HPC path profile already exists.
+- **Baselines rerun** under the current eval config: the numbers are unchanged, and the RQ tests require both sets of runs to use the same eval config hash.
 
 ## Open questions
 
