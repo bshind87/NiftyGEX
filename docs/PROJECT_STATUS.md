@@ -5,7 +5,7 @@
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** latest commit `a6f20eb`, plus uncommitted changes since (the trainer, runner, RQ tests and results report), so current runs record `git_dirty = true`. Commits are made through GitHub Desktop.
-**Tests:** 121 passed, 1 skipped (the model acceptance tests, until `nn/models.py` lands), 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 146 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** model results by mid-November (own target); final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -14,15 +14,13 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Goal: results done by mid-November. Pick up here, in order:
 
-1. **Once `nn/models.py` is merged (target 8 Nov):** `PYTHONPATH=src pytest tests/test_nn_models.py`, then the main run. It takes about 2 hours on the laptop (26 walks × 3 models × 3 seeds):
-   - `scripts/run_neural.py`
-   - `scripts/run_rq_tests.py`
-   - `scripts/report_results.py`
-2. **Ablations (exploratory):**
-   - window: `run_neural.py --models attention_gru --window 24` (about 3.5 hours) and `--window 72` (about 10 hours; one seed, or on HPC);
-   - one field-drop run without the OI-change field: `run_neural.py --drop oi_change_since_previous_close_pct`.
-3. **Attention maps:** `run_neural.py --save-attention` stores the weights. The plotting and case-study script is still to write.
-4. **Final write-up:** a final-report generator (Word, filled from the results files), the slides (Dec 3/10) and the final report (Dec 17).
+1. **Commit first** in GitHub Desktop, so the run records a clean commit.
+2. **Full main run** (Mac on a cooling pad; about 1 h 50 min): `run_neural.py --save-attention`, which trains all three models in one go so the comparison file and the RQ tests cover them together. Then run `run_rq_tests.py`, `report_results.py` and `write_final_report.py`. Don't edit repo files while it runs: each saved run records `git_dirty`.
+3. **Ablations (exploratory), in the background:**
+   - `run_neural.py --models attention_gru --window 24` (about 3.5 hours);
+   - `--window 72` (about 10 hours);
+   - `--drop oi_change_since_previous_close_pct`.
+4. **Attention-map script (task 4),** the final slides (Dec 3/10), and a clean-commit reproducibility rerun.
 
 ## Milestones (proposal slide 16)
 
@@ -101,11 +99,11 @@ Goal: results done by mid-November. Pick up here, in order:
 |---|---|---|---|
 | E1 | PyTorch in the pinned env | ✅ | `pytorch=2.10.0` from conda-forge (the pip wheel's bundled OpenMP aborts next to LightGBM's) |
 | E2a | `nn/dataset.py` | ✅ | Tokens to `[days, L, N, 15]` tensors with padding mask (index −1 = 15:15), signed logs, a per-walk scaler fitted on training days, missing values as 0. On real data, window 12: 153 MB, 0.5 s, 1,794 of 1,800 days with 15:15 tokens; window 72: 941 MB Tests: `tests/test_nn_dataset.py` |
-| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | 🔄 | Being built against the fixed interface in `docs/handoff_asad.md`: check-in 5 Nov, target merge 8 Nov. Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
+| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | ✅ | Merged 3 Nov (PR #1, `cc18a49`), built to the interface in `docs/handoff_asad.md`. All 25 acceptance tests pass; attention + GRU has 112,257 parameters; a 2-walk real-data run trains cleanly (early stopping around epoch 13–15). Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
 | E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
 | E3 | Sanity checks | 🔄 | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
-| E4 | Runs and report | ⏳ | Waiting for `nn/models.py`. The main run is estimated at about 2 hours on the laptop |
+| E4 | Runs and report | 🔄 | 3 Nov: DeepSets (2 min) and self-attention (9.4 min) finished on all 26 walks, then the run was stopped on purpose before attention + GRU, to be run with a cooling pad. Those two runs are a preview only (`git_dirty = true`; no comparison file or RQ tests written). The full main run comes next |
 
 ### F. Research-question tests and write-up ⏳
 
@@ -117,7 +115,7 @@ Goal: results done by mid-November. Pick up here, in order:
 | F4 | Attention maps and case studies | ⏳ | — |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
-| F7 | Final report, code and reproducibility pass | ⏳ | A clean-commit end-to-end rerun is still to do |
+| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Layout checked on the development run (12 pages). The clean-commit rerun is still to do |
 
 ### G. External tasks
 
