@@ -48,6 +48,11 @@ class NeuralForecaster(Forecaster):
         if self.device.type == "mps":
             torch.mps.empty_cache()
 
+    def _days_per_pass(self, window: int, multiple: int = 1) -> int:
+        """Days per forward pass, sized so memory stays at the default window's level (``multiple`` batches at that window)."""
+        reference = int(self.cfg.get("window", window))
+        return max(1, int(self.training["batch_size"]) * multiple * reference // window)
+
     def _new_model(self, seed: int) -> torch.nn.Module:
         torch.manual_seed(seed)
         n_features, n_state = self.inputs.tokens.shape[-1], self.inputs.state.shape[-1]
@@ -62,8 +67,7 @@ class NeuralForecaster(Forecaster):
     def _predict(self, model: torch.nn.Module, data: tuple[torch.Tensor, ...]) -> np.ndarray:
         model.eval()
         tokens, mask, state = data
-        # About batch_size x 48 snapshots per pass: 4 training batches at L = 12, fewer days for longer windows.
-        size = max(1, int(self.training["batch_size"]) * 48 // tokens.shape[1])
+        size = self._days_per_pass(tokens.shape[1], multiple=4)
         return np.concatenate([model(tokens[i:i + size], mask[i:i + size], state[i:i + size]).cpu().numpy()
                                for i in range(0, tokens.shape[0], size)])
 
@@ -75,14 +79,17 @@ class NeuralForecaster(Forecaster):
         loss_fn = torch.nn.HuberLoss(delta=float(self.training["huber_delta"]))
         target = torch.from_numpy(y.astype(np.float32)).to(self.device)
         generator = np.random.default_rng(seed)
+        # Longer windows split each batch into equal-memory pieces and accumulate gradients: the same batch update.
+        piece = self._days_per_pass(data[0].shape[1])
         best, best_epoch, best_state, curve, waited = np.inf, epochs, None, [], 0
         for epoch in range(1, epochs + 1):
             model.train()
             for index in self._batches(len(y), generator):
                 optimizer.zero_grad()
-                index_t = torch.from_numpy(index).to(self.device)
-                loss = loss_fn(model(*(part[index_t] for part in data)), target[index_t])
-                loss.backward()
+                for start in range(0, len(index), piece):
+                    index_t = torch.from_numpy(index[start:start + piece]).to(self.device)
+                    loss = loss_fn(model(*(part[index_t] for part in data)), target[index_t])
+                    (loss if piece >= len(index) else loss * (len(index_t) / len(index))).backward()
                 optimizer.step()
             if valid is None:
                 continue
@@ -112,6 +119,7 @@ class NeuralForecaster(Forecaster):
             model, epoch, curve = self._train(data, y, int(seed), int(self.training["max_epochs"]), valid=(valid_data, y_valid))
             self.models_.append(model)
             self.epochs_.append(epoch)
+            self._release()
             self.history_.append({"seed": int(seed), "best_epoch": epoch, "valid_curve": curve})
 
     def fit(self, train: pl.DataFrame, outcome: str) -> "NeuralForecaster":

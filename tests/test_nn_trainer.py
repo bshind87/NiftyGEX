@@ -92,6 +92,16 @@ def test_without_refit_the_early_stopped_models_are_kept() -> None:
     assert model.models_ == tuned and model.predict(table[120:]).shape == (30,)
 
 
+def test_longer_windows_accumulate_gradients_to_the_same_update() -> None:
+    table, inputs = synthetic(days=150)
+    runs = []
+    for window in (3, 1):  # the data has 3 snapshots; a 1-snapshot reference splits each batch of 32 into pieces of 10
+        model = NeuralForecaster("stand_in", inputs, {**NEURAL, "window": window}, factory=factory)
+        model.tune(table[:90], table[95:120], "y")
+        runs.append(model.predict(table[120:]))
+    assert np.allclose(runs[0], runs[1], atol=1e-4)
+
+
 class AttentionStandIn(MeanPool):
     """Stand-in that also returns pooling weights: uniform over the last snapshot's real contracts, 2 heads."""
 

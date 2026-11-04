@@ -5,7 +5,7 @@
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** commit `12b11a0`; the main neural runs record `git_dirty = false`. Commits are made through GitHub Desktop.
-**Tests:** 146 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 147 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** ablations and attention maps; final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -14,7 +14,7 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Goal: results done by mid-November. Pick up here, in order:
 
-1. **Commit** in GitHub Desktop: the trainer memory fix (`src/niftygex_eval/nn/trainer.py`), `docs/glossary.md` and this page. Then rerun the ablations on that clean commit (the 4 Nov attempt ran out of GPU memory; see E4).
+1. **Commit** in GitHub Desktop: the gradient-accumulation fix (`src/niftygex_eval/nn/trainer.py`, `tests/test_nn_trainer.py`) and this page. Then rerun window 24 on that clean commit (field drop is done).
 2. **Ablations (exploratory), in the background:**
    - `run_neural.py --models attention_gru --window 24` (about 3 hours);
    - `--window 72` (about 10 hours; one seed, or HPC);
@@ -103,14 +103,14 @@ Goal: results done by mid-November. Pick up here, in order:
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
 | E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
 | E3 | Sanity checks | ✅ | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
-| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded. The first ablation attempt (field drop, 4 Nov 09:29) failed after 64 min with an MPS out-of-memory error (16 GB unified memory; cached memory from earlier walks plus the largest late-period chains). Fix: the trainer releases cached GPU memory before each walk, and the prediction batch scales with the window (256 days at L = 12, unchanged; 128 at L = 24), so main-run numbers are unaffected |
+| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded. The first ablation attempt (field drop, 4 Nov 09:29) failed after 64 min with an MPS out-of-memory error (16 GB unified memory; cached memory from earlier walks plus the largest late-period chains). Fix: the trainer releases cached GPU memory before each walk, and the prediction batch scales with the window (256 days at L = 12, unchanged; 128 at L = 24), so main-run numbers are unaffected. The field drop then completed (run `778509070ba82c1b`, commit `d239c0e`, clean; 80 min). Window 24 failed again after 22 min: the training step's backward pass peaks at about 12 GB at L = 24. Fix: batches are split into equal-memory pieces with gradient accumulation for windows longer than the default (the same batch-64 update; L = 12 is not split, so main-run numbers are unchanged). Measured on the largest walk at L = 24: driver memory 12.8 → 7.2 GB, flat across epochs, same speed. Test: `test_longer_windows_accumulate_gradients_to_the_same_update` |
 
 ### F. Research-question tests and write-up 🔄
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
 | F1 | RQ1 | ✅ | Beats every rung: no. Significant only vs persistence on IC; supporting DM losses favour it over LightGBM |
-| F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection); window and field-drop ablations (exploratory) to do |
+| F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection). Field drop done (exploratory): without `oi_change_since_previous_close_pct`, attention + GRU IC 0.459 vs 0.447 (+0.012, 95% CI −0.009 to +0.034, 15 of 26 walks), QLIKE 0.204 vs 0.189 (worse); the concentrated-attention days go from 4 to 0. Window 24 to rerun |
 | F3 | RQ3 | ✅ | Gain +0.003 (19 walks before) vs −0.014 (7 after); Welch p 0.74 |
 | F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
