@@ -2,7 +2,7 @@
 
 Every number comes from the manifests, the reports in outputs/reports/ and the results store; verdict sentences are
 generated from the pre-registered test results. Run first: scripts/report_data.py, run_forecast.py, run_neural.py,
-run_rq_tests.py and report_results.py (ablation and attention-map sections appear once their outputs exist).
+run_rq_tests.py, report_results.py and report_attention.py (ablation and attention-map sections appear once their outputs exist).
 Output: docs/deliverables/NiftyGEX_Final_Report.docx (gitignored). --tag dev uses the development-run files and
 writes outputs/reports/NiftyGEX_Final_Report_dev.docx instead.
 """
@@ -175,13 +175,18 @@ def main() -> None:
     else:
         doc.add_paragraph("Pending: window lengths 24 and 72 and the OI-change field drop (scripts/run_neural.py --window / --drop).")
 
-    attention_figures = sorted(ctx.figures.glob("attention_*.png"))
+    attention_path = reports / "attention.json"
     doc.add_heading(f"{section + 1}. What the model attends to", level=1)
-    if attention_figures and tag == "main":
-        for path in attention_figures:
-            figure(doc, path, ctx.caption(path.stem.replace("_", " ")))
+    if attention_path.exists() and tag == "main":
+        attention = load(attention_path)
+        doc.add_paragraph("Exploratory, from the pooling weights of self-attention and attention + GRU on every test day (scripts/report_attention.py). "
+                          "A contract's relative weight is its pooling weight times the number of contracts in the snapshot; 1 is a plain average.")
+        bullets(doc, attention["findings"])
+        for item in attention["figures"]:
+            figure(doc, REPO_ROOT / item["path"], ctx.caption(item["caption"]))
     else:
-        doc.add_paragraph("Pending: pooling attention weights are stored per test day (run_neural.py --save-attention); the maps come next.")
+        doc.add_paragraph("Pending: pooling attention weights are stored per test day (run_neural.py --save-attention); "
+                          "scripts/report_attention.py draws the maps.")
 
     data_gaps_section(doc, ctx, section + 2)
 
@@ -201,6 +206,15 @@ def main() -> None:
         conclusion = (f"On the pre-registered test, reading every contract does not beat every classical model: attention + GRU reaches a mean IC of "
                       f"{fmt(ours.get('ic_mean_per_walk'))} against {fmt(har.get('ic_mean_per_walk'))} for HAR-RV. As planned, this is reported as the "
                       "finding; RQ2 shows what each part of the model adds.")
+    losses = [r for r in ladder.values() if r.get("rmse_mean_per_walk") is not None]
+    best_rmse = min(losses, key=lambda r: r["rmse_mean_per_walk"])["model"]
+    best_qlike = min(losses, key=lambda r: r["qlike_mean_per_walk"])["model"]
+    if best_rmse == best_qlike == "attention_gru":
+        dm = rq1["comparisons"].get("attention_gru_vs_lightgbm", {})
+        conclusion += (f" On forecast error it is the best model: mean RMSE {fmt(ours.get('rmse_mean_per_walk'))} and QLIKE "
+                       f"{fmt(ours.get('qlike_mean_per_walk'))}, the lowest on the ladder; Diebold–Mariano p against tuned LightGBM is "
+                       f"{fmt(dm.get('dm_squared', {}).get('p_two_sided'))} (squared) and {fmt(dm.get('dm_qlike', {}).get('p_two_sided'))} (QLIKE). "
+                       "These loss tests support, but are not, the pre-registered IC rule.")
     doc.add_paragraph(conclusion)
 
     feature_appendix(doc, ctx)
@@ -209,7 +223,7 @@ def main() -> None:
         "Environment: conda env create -f env/environment.yml (Python 3.11, PyTorch 2.10 from conda-forge).",
         "Data stages: clean_chain → compute_basis → compute_forward → compute_greeks → compute_gex → compute_features → compute_tokens → "
         "compute_targets → validate_data (scripts/, about 3 minutes).",
-        "Models and tests: run_forecast → run_neural → run_rq_tests → report_results → write_final_report.",
+        "Models and tests: run_forecast → run_neural --save-attention → run_rq_tests → report_results → report_attention → write_final_report.",
         f"Data config hash {ctx.m['features']['config_hash'][:12]}; eval config hash {tests['eval_config_hash'][:12]}; every results-store run records "
         "its git commit and whether the working tree was clean.",
     ])

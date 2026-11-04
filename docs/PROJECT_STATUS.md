@@ -1,12 +1,12 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-02
+**Last updated:** 2026-11-04
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
-**Code:** latest commit `a6f20eb`, plus uncommitted changes since (the trainer, runner, RQ tests and results report), so current runs record `git_dirty = true`. Commits are made through GitHub Desktop.
+**Code:** commit `12b11a0`; the main neural runs record `git_dirty = false`. Commits are made through GitHub Desktop.
 **Tests:** 146 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
-**Next milestone:** model results by mid-November (own target); final presentation 2026-12-03 / 12-10
+**Next milestone:** ablations and attention maps; final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
 
@@ -14,13 +14,13 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Goal: results done by mid-November. Pick up here, in order:
 
-1. **Commit first** in GitHub Desktop, so the run records a clean commit.
-2. **Full main run** (Mac on a cooling pad; about 1 h 50 min): `run_neural.py --save-attention`, which trains all three models in one go so the comparison file and the RQ tests cover them together. Then run `run_rq_tests.py`, `report_results.py` and `write_final_report.py`. Don't edit repo files while it runs: each saved run records `git_dirty`.
-3. **Ablations (exploratory), in the background:**
-   - `run_neural.py --models attention_gru --window 24` (about 3.5 hours);
-   - `--window 72` (about 10 hours);
-   - `--drop oi_change_since_previous_close_pct`.
-4. **Attention-map script (task 4),** the final slides (Dec 3/10), and a clean-commit reproducibility rerun.
+1. **Commit** in GitHub Desktop: `docs/findings_models.md`, `docs/findings_attention.md`, `scripts/report_attention.py`, the final-report changes and this page. Then the ablations record a clean commit.
+2. **Ablations (exploratory), in the background:**
+   - `run_neural.py --models attention_gru --window 24` (about 3 hours);
+   - `--window 72` (about 10 hours; one seed, or HPC);
+   - `--drop oi_change_since_previous_close_pct` (about 1.5 hours).
+   - after each: `report_results.py --tag <tag>` and `write_final_report.py`.
+3. **Final slides** (Dec 3/10) and a clean-commit reproducibility rerun.
 
 ## Milestones (proposal slide 16)
 
@@ -28,8 +28,8 @@ Goal: results done by mid-November. Pick up here, in order:
 |---|---|---|
 | 2026-10-08 | Proposal | ✅ Presented with deck v9 |
 | 2026-10-29 | Data pipeline, first baselines | ✅ The midterm Word report was generated (`docs/deliverables/`); its submission is not recorded here ❓ |
-| mid-November | Model results (own target) | 🔄 Trainer, runner, RQ tests and report ready; waiting for `nn/models.py` |
-| November | Model, switch-off tests, rule-change tests | ⏳ |
+| mid-November | Model results (own target) | ✅ Main run and RQ1–RQ3 done 4 Nov (`docs/findings_models.md`) |
+| November | Model, switch-off tests, rule-change tests | 🔄 Pre-registered tests done; ablations and attention maps to do |
 | 2026-12-03 / 12-10, 12-17 | Final presentation, code and report | ⏳ |
 
 ## Proposal map
@@ -40,13 +40,13 @@ Goal: results done by mid-November. Pick up here, in order:
 | Step 1: HAR-RV | ✅ | run `cc6af41802a38fc8` |
 | Step 2: HAR + GEX | ✅ | run `cb4cb0f9374dbeab` |
 | Step 3: tuned LightGBM on ~40 summaries | ✅ | run `85c1129f0c7cbb1a` |
-| Step 4: DeepSets | 🔄 | Inputs, trainer and runner ready (D, E2a, E2c, E2d); waiting for `nn/models.py` (E2b) |
-| Step 5: single-snapshot self-attention | 🔄 | Inputs, trainer and runner ready (D, E2a, E2c, E2d); waiting for `nn/models.py` (E2b) |
-| Step 6: attention + GRU (our model) | 🔄 | Inputs, trainer and runner ready (D, E2a, E2c, E2d); waiting for `nn/models.py` (E2b) |
-| RQ1: does reading every contract predict better? | ⏳ | Test pre-registered in `configs/eval.yaml` (`multiple_testing.RQ1`) |
-| RQ2: why does it win? | ⏳ | Pre-registered (`RQ2`) |
-| RQ3: does it survive rule changes? | ⏳ | Pre-registered (`RQ3`). The before/after split already runs for the classical ladder |
-| Attention maps | ⏳ | After step 6 |
+| Step 4: DeepSets | ✅ | run `baa5bb9503e69096` |
+| Step 5: single-snapshot self-attention | ✅ | run `8cfe1b261e53a1e3` |
+| Step 6: attention + GRU (our model) | ✅ | run `e5cacfc5b84de69c` (with attention weights) |
+| RQ1: does reading every contract predict better? | ✅ | Not supported on IC; `outputs/results/rq_tests.json` |
+| RQ2: why does it win? | ✅ | No Holm rejection; `rq_tests.json` |
+| RQ3: does it survive rule changes? | ✅ | No change detected (p 0.74); `rq_tests.json` |
+| Attention maps | ✅ | `docs/findings_attention.md` (exploratory) |
 
 ## Tasks
 
@@ -93,7 +93,7 @@ Goal: results done by mid-November. Pick up here, in order:
 | D2 | Volatility-state vector | ✅ | 14 columns from the forecast table (`neural.state_columns`): IV, skew, term slope, intraday and 1/5/20-day RV, previous VIX, days to expiry, expiry-day flag, normalized GEX (3 conventions) and the inferred sign. Logs of positive levels; no data-layer change |
 | D3 | Leakage test and report | ✅ | Validation and stage-contract checks: every token is available by its snapshot, each sequence snapshot is ≤ its prediction snapshot, one expiry per day, and lag-0 tokens equal the GEX chain. The data report has 4 figures | `docs/findings_data.md`, `outputs/reports/data_overview.json` |
 
-### E. Neural models, steps 4–6 🔄
+### E. Neural models, steps 4–6 ✅
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
@@ -102,20 +102,20 @@ Goal: results done by mid-November. Pick up here, in order:
 | E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | ✅ | Merged 3 Nov (PR #1, `cc18a49`), built to the interface in `docs/handoff_asad.md`. All 25 acceptance tests pass; attention + GRU has 112,257 parameters; a 2-walk real-data run trains cleanly (early stopping around epoch 13–15). Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
 | E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
-| E3 | Sanity checks | 🔄 | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
-| E4 | Runs and report | 🔄 | 3 Nov: DeepSets (2 min) and self-attention (9.4 min) finished on all 26 walks, then the run was stopped on purpose before attention + GRU, to be run with a cooling pad. Those two runs are a preview only (`git_dirty = true`; no comparison file or RQ tests written). The full main run comes next |
+| E3 | Sanity checks | ✅ | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
+| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded |
 
-### F. Research-question tests and write-up ⏳
+### F. Research-question tests and write-up 🔄
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
-| F1 | RQ1 | ⏳ | Attention + GRU against every rung |
-| F2 | RQ2 | ⏳ | DeepSets vs attention; attention vs attention + GRU; window and field-drop ablations (exploratory) |
-| F3 | RQ3 | ⏳ | Per-walk IC gain over LightGBM, after vs before the marker |
-| F4 | Attention maps and case studies | ⏳ | — |
+| F1 | RQ1 | ✅ | Beats every rung: no. Significant only vs persistence on IC; supporting DM losses favour it over LightGBM |
+| F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection); window and field-drop ablations (exploratory) to do |
+| F3 | RQ3 | ✅ | Gain +0.003 (19 walks before) vs −0.014 (7 after); Welch p 0.74 |
+| F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
-| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Layout checked on the development run (12 pages). The clean-commit rerun is still to do |
+| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Layout checked on the development run (12 pages); regenerated from the main run on 4 Nov, with ablation and attention-map sections still pending. The clean-commit rerun is still to do |
 
 ### G. External tasks
 
@@ -139,6 +139,20 @@ Moved to `archive/` (code, tests, configs, docs) and `outputs/archive/` (summari
 | H5 | T1 pinning and T3 drift targets | Removed from the data layer on 2026-10-14: `archive/src/niftygex/`, `archive/docs/schema_t1_t3.md`, last outputs in `outputs/archive/data_targets/` |
 
 ## Key findings so far
+
+**Neural ladder and pre-registered tests** (`docs/findings_models.md`; 26 walks, same rows as the classical ladder):
+
+| Model | IC | 95% CI | RMSE | QLIKE |
+|---|---|---|---|---|
+| DeepSets | 0.437 | 0.361 to 0.512 | 0.293 | 0.197 |
+| Self-attention | 0.418 | 0.324 to 0.512 | 0.293 | 0.197 |
+| Attention + GRU | 0.447 | 0.363 to 0.531 | 0.285 | 0.189 |
+
+- **RQ1: not supported.** Attention + GRU ties the best classical models on IC (vs HAR +0.012, p 0.61; vs LightGBM −0.001, p 0.95); it beats only persistence.
+- **On losses it is the best model** (lowest RMSE and QLIKE). Diebold–Mariano favours it over LightGBM on squared loss (p 0.015) and QLIKE (p 0.042), and over HAR + GEX on QLIKE (p 0.033). These are supporting tests, not the pre-registered IC rule.
+- **RQ2:** attention vs DeepSets −0.018 (Holm p 0.23); history (attention + GRU vs attention) +0.028 (Holm p 0.20). Neither rejects.
+- **RQ3:** no detectable change in the gain over LightGBM after the Nov 2024 marker (p 0.74; only 7 walks after).
+- **Attention maps (exploratory, `docs/findings_attention.md`):** pooling weights are almost exactly a plain average (median largest weight 1.008× average). The concentrated days (4 of 1,552 for attention + GRU, all late 2024–2026) put the weight on the day's largest OI change %, a field that is not log-transformed. This fits RQ2 (attention ≈ DeepSets); the field-drop ablation tests it.
 
 **Classical ladder** (`docs/findings_forecast.md`; mean per-walk IC over 26 walks, with 95% CI):
 
@@ -223,10 +237,16 @@ From `outputs/reports/missing_data.md`:
 **2026-11-02**
 - **Models built against a fixed interface.** `nn/models.py` (E2b) is specified by an interface and acceptance tests (`docs/handoff_asad.md`), so it can be developed without the data. Commits go through GitHub Desktop. Contributions are not tracked per person.
 - **PyTorch 2.10 from conda-forge**, not pip: the pip wheel's own OpenMP aborts on import next to LightGBM.
-- **Neural inputs** (`configs/eval.yaml` → `neural`): 15 token fields, a 14-column volatility state, window L = 12 by default; model defaults d = 64, 4 heads, 2 layers, GRU 64; training with Huber, AdamW and seeds 11/12/13.- **Target:** results by mid-November.
+- **Neural inputs** (`configs/eval.yaml` → `neural`): 15 token fields, a 14-column volatility state, window L = 12 by default; model defaults d = 64, 4 heads, 2 layers, GRU 64; training with Huber, AdamW and seeds 11/12/13.
+- **Target:** results by mid-November.
 - **Neural training without refit:** each seed's early-stopped model (inner split) predicts the test block. Settings: at most 60 epochs, patience 8, batch 64, DeepSets on CPU and the attention models on MPS. This cuts the main run to about 2 hours.
 - **HPC is optional:** only for the 72-snapshot window ablation. The HPC path profile already exists.
 - **Baselines rerun** under the current eval config: the numbers are unchanged, and the RQ tests require both sets of runs to use the same eval config hash.
+
+**2026-11-04**
+- Main neural run on clean commit `12b11a0`; it replaces the 3 Nov preview runs. RQ1–RQ3 were evaluated exactly as pre-registered.
+- `oi_change_since_previous_close_pct` stays as configured (not log-transformed). Changing it now would change the eval config hash and break comparability with the pre-registered runs; the `--drop` ablation measures its effect instead.
+- The final report's conclusion now also states the loss result (lowest RMSE and QLIKE, Diebold–Mariano vs LightGBM), labeled as supporting evidence, not the IC rule.
 
 ## Open questions
 
