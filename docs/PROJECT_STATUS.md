@@ -14,7 +14,7 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Goal: results done by mid-November. Pick up here, in order:
 
-1. **Commit** in GitHub Desktop: `docs/findings_models.md`, `docs/findings_attention.md`, `scripts/report_attention.py`, the final-report changes and this page. Then the ablations record a clean commit.
+1. **Commit** in GitHub Desktop: the trainer memory fix (`src/niftygex_eval/nn/trainer.py`), `docs/glossary.md` and this page. Then rerun the ablations on that clean commit (the 4 Nov attempt ran out of GPU memory; see E4).
 2. **Ablations (exploratory), in the background:**
    - `run_neural.py --models attention_gru --window 24` (about 3 hours);
    - `--window 72` (about 10 hours; one seed, or HPC);
@@ -103,7 +103,7 @@ Goal: results done by mid-November. Pick up here, in order:
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
 | E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
 | E3 | Sanity checks | ✅ | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
-| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded |
+| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded. The first ablation attempt (field drop, 4 Nov 09:29) failed after 64 min with an MPS out-of-memory error (16 GB unified memory; cached memory from earlier walks plus the largest late-period chains). Fix: the trainer releases cached GPU memory before each walk, and the prediction batch scales with the window (256 days at L = 12, unchanged; 128 at L = 24), so main-run numbers are unaffected |
 
 ### F. Research-question tests and write-up 🔄
 
@@ -246,6 +246,7 @@ From `outputs/reports/missing_data.md`:
 **2026-11-04**
 - Main neural run on clean commit `12b11a0`; it replaces the 3 Nov preview runs. RQ1–RQ3 were evaluated exactly as pre-registered.
 - `oi_change_since_previous_close_pct` stays as configured (not log-transformed). Changing it now would change the eval config hash and break comparability with the pre-registered runs; the `--drop` ablation measures its effect instead.
+- Added `docs/glossary.md`: every market, model, training, evaluation and statistics term used in the project.
 - The final report's conclusion now also states the loss result (lowest RMSE and QLIKE, Diebold–Mariano vs LightGBM), labeled as supporting evidence, not the IC rule.
 
 ## Open questions

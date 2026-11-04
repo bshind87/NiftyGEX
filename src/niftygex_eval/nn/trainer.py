@@ -7,6 +7,7 @@ shuffled within the training rows only; splits stay in time order.
 """
 from __future__ import annotations
 
+import gc
 from typing import Any, Callable
 
 import numpy as np
@@ -41,6 +42,12 @@ class NeuralForecaster(Forecaster):
         to = lambda a: torch.from_numpy(np.ascontiguousarray(a)).to(self.device)
         return to(tokens), to(self.inputs.mask[rows]), to(state)
 
+    def _release(self) -> None:
+        """Return cached GPU memory from earlier walks before building this walk's tensors (MPS shares system memory)."""
+        gc.collect()
+        if self.device.type == "mps":
+            torch.mps.empty_cache()
+
     def _new_model(self, seed: int) -> torch.nn.Module:
         torch.manual_seed(seed)
         n_features, n_state = self.inputs.tokens.shape[-1], self.inputs.state.shape[-1]
@@ -55,7 +62,8 @@ class NeuralForecaster(Forecaster):
     def _predict(self, model: torch.nn.Module, data: tuple[torch.Tensor, ...]) -> np.ndarray:
         model.eval()
         tokens, mask, state = data
-        size = int(self.training["batch_size"]) * 4
+        # About batch_size x 48 snapshots per pass: 4 training batches at L = 12, fewer days for longer windows.
+        size = max(1, int(self.training["batch_size"]) * 48 // tokens.shape[1])
         return np.concatenate([model(tokens[i:i + size], mask[i:i + size], state[i:i + size]).cpu().numpy()
                                for i in range(0, tokens.shape[0], size)])
 
@@ -94,6 +102,7 @@ class NeuralForecaster(Forecaster):
 
     # ------------------------------------------------------------------ Forecaster
     def tune(self, train: pl.DataFrame, valid: pl.DataFrame, outcome: str) -> None:
+        self._release()
         train_rows, valid_rows = self._rows(train), self._rows(valid)
         self.scaler_ = Scaler.fit(self.inputs.tokens[train_rows], self.inputs.mask[train_rows], self.inputs.state[train_rows])
         data, valid_data = self._tensors(train_rows), self._tensors(valid_rows)
@@ -108,6 +117,7 @@ class NeuralForecaster(Forecaster):
     def fit(self, train: pl.DataFrame, outcome: str) -> "NeuralForecaster":
         if self.models_ and not bool(self.training.get("refit", True)):
             return self  # keep the early-stopped models and the scaler fitted on their training rows
+        self._release()
         rows = self._rows(train)
         self.scaler_ = Scaler.fit(self.inputs.tokens[rows], self.inputs.mask[rows], self.inputs.state[rows])
         data, y = self._tensors(rows), train[outcome].to_numpy()
