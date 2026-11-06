@@ -55,12 +55,13 @@ Scratch is purged each semester: `hpc/pull_results.sh` copies results back to th
    (committed), then step 5 again so each script knows its walk length.
 7. **Waves**: `bash hpc/remote.sh loop` submits `hpc/scheduler.sbatch` (a CPU job polling every 5 minutes); or run
    `bash hpc/remote.sh scheduler` from the Mac now and then. Routing (`hpc/hpc.yaml`):
-   - short jobs (under 2 h: references, E1 neural, E2 L = 24 and multi-day, E3 DeepSets and attention) go to
-     **gpu-short** (2 running / 4 submitted, `--time 01:55:00`; RC also lists a 1-GPU-per-user limit there);
-   - long jobs (E3 attention + GRU, E2 L = 72) are first queued on **gpu** (4 / 8, 8 h) for the night;
-   - **courses-gpu** (1 job, 8 h) takes any job whose `sbatch --test-only` start is earlier there;
-   - a long job still pending on gpu moves to chained **gpu-short pieces** (1 h 50 min) when gpu-short has a free slot,
-     no short job is waiting, its walks fit a piece, and the piece starts at least 30 min sooner;
+   - since calibration (6 Nov) **every job is short** and goes to **gpu-short** (2 running / 4 submitted, `--time 01:55:00`;
+     two of our jobs ran there at once) or to **courses-gpu** (1 job, 8 h) when `sbatch --test-only` says it starts sooner;
+   - **gpu** (4 / 8, 8 h) stays configured but disabled (`enabled: false` in `hpc/hpc.yaml`); switch it on if gpu-short
+     throttles. The long-job route (queue on gpu, chained gpu-short pieces) applies only to jobs marked long;
+   - every submission passes `--exclude` with the nodes our running jobs use (a co-located job was SIGKILLed on 6 Nov);
+     each SIGKILLed attempt is logged to `outputs/hpc/kills.tsv` with any of our jobs that shared its node, and a kill
+     with no shared node is flagged for RC;
    - every job stops starting walks 8 minutes before its time limit and is resubmitted; it resumes from its walk
      checkpoints. A crash writes a `.failed` marker and stops that job until `--retry-failed`.
 8. **Status**: `bash hpc/remote.sh status`.

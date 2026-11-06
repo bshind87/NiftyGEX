@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 
 from niftygex.config import REPO_ROOT
-from niftygex_eval.hpc_jobs import Job, Queued, job_list, plan, render_script
+from niftygex_eval.hpc_jobs import Job, Queued, job_list, kill_report, plan, render_script
 from niftygex_eval.merge import group_key, merge_predictions, merge_walk_metrics, merged_spec, seed_of
 
 SETTINGS = {"resources": {"mem": "32G", "cpus_per_task": 4}, "scratch_dir": "/scratch/u/niftygex", "code_dir": "/home/u/niftygex",
@@ -34,8 +34,7 @@ def test_job_list_covers_every_run_once_per_seed() -> None:
     names = [j.name for j in jobs]
     assert len(names) == len(set(names)) == 2 + 9 + 12 + 18 + 9 + 3
     assert [j.wave for j in jobs][:2] == ["calibration", "calibration"] and jobs[-1].wave == "e2_l72"
-    long = {j.name for j in jobs if j.kind == "long"}
-    assert long == {f"e3_attention_gru_{h}h_s{s}" for h in (1, 2) for s in (11, 12, 13)} | {f"e2_window72_s{s}" for s in (11, 12, 13)}
+    assert all(j.kind == "short" for j in jobs)          # calibration (6 Nov): every job fits gpu-short
     for job in jobs:
         assert (REPO_ROOT / job.command.split()[0]).exists(), job.command
         assert job.wave == "calibration" or "--seed" in job.command
@@ -201,3 +200,29 @@ def test_results_store_follows_the_profile_outputs_root(monkeypatch) -> None:
     assert load_eval_config()["results_root"] == REPO_ROOT / "outputs" / "results"        # unchanged on the Mac
     monkeypatch.setenv("USER", "tester")
     assert str(load_eval_config("hpc")["results_root"]) == "/scratch/tester/niftygex/outputs/results"
+
+
+def test_disabled_partitions_are_never_used_and_busy_nodes_are_excluded() -> None:
+    settings = {**SETTINGS, "partitions": {**SETTINGS["partitions"], "gpu": {**SETTINGS["partitions"]["gpu"], "enabled": False}}}
+    long = Job("l1", "e3", "x", "long", "g")
+    actions, _ = plan([long, Job("s1", "e1", "x")], {}, set(), set(), {}, settings, {}, starts({"gpu": 0.1, "courses-gpu": 5, "gpu-short": 1}),
+                      NOW, busy_nodes=("d1020", "d1012"))
+    assert [(a.job.name, a.partition) for a in actions] == [("l1", "courses-gpu"), ("s1", "gpu-short")]   # gpu is disabled
+    assert all(a.exclude == ("d1012", "d1020") for a in actions)
+    off = {**settings, "avoid_shared_nodes": False}
+    again, _ = plan([Job("s1", "e1", "x")], {}, set(), set(), {}, off, {}, starts({"gpu-short": 1}), NOW, busy_nodes=("d1020",))
+    assert again[0].exclude == ()
+
+
+def test_sigkills_are_classified_by_shared_node() -> None:
+    t = lambda m: datetime(2026, 11, 6, 16, m)
+    records = {"1": {"exit_code": "0:9", "nodes": "d1020", "start": t(6), "end": t(9)},
+               "2": {"exit_code": "0:0", "nodes": "d1020", "start": t(6), "end": t(9)},
+               "3": {"exit_code": "0:0", "nodes": "d1012", "start": t(6), "end": t(9)},
+               "4": {"exit_code": "0:9", "nodes": "d1017", "start": t(20), "end": t(25)},
+               "5": {"exit_code": "137:0", "nodes": "d1017", "start": t(20), "end": t(25)}}
+    assert kill_report("1", records["1"], records) == {"shared_with": ["2"]}      # co-located with job 2
+    assert kill_report("4", records["4"], records) == {"shared_with": ["5"]}
+    alone = {k: v for k, v in records.items() if k != "5"}
+    assert kill_report("4", alone["4"], alone) == {"shared_with": []}            # no shared node: flagged for RC
+    assert kill_report("2", records["2"], records) is None                        # not a SIGKILL

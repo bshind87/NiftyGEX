@@ -17,9 +17,11 @@ resources: {mem: 32G, cpus_per_task: 4}
 # A long job still pending on gpu may instead run as chained gpu-short pieces when gpu-short has a free slot and no
 # short job is waiting; each piece stops before a walk it cannot finish and the next piece resumes from the
 # checkpoints. Limits are running / submitted per partition (RC's table; gpu-short also has a 1-GPU-per-user limit).
+# Calibration (6 Nov): every job fits gpu-short, which started jobs within minutes and ran two at once, so gpu is kept
+# but disabled (enabled: true switches it on if gpu-short throttles).
 partitions:
   gpu-short: {max_running: 2, max_submitted: 4, time: "01:55:00"}
-  gpu: {max_running: 4, max_submitted: 8, time: "08:00:00"}
+  gpu: {max_running: 4, max_submitted: 8, time: "08:00:00", enabled: false}
   courses-gpu: {max_running: 1, max_submitted: 1, time: "08:00:00"}
 routing:
   short: [gpu-short, courses-gpu]
@@ -29,5 +31,6 @@ routing:
   chain_max_walk_minutes: 80         # chain a long job only if its walks fit a piece (calibration sets the estimates)
   move_if_earlier_by_minutes: 30     # move a pending gpu job to chained gpu-short pieces if they start this much earlier
 deadline_margin_minutes: 8           # a job stops starting walks this long before its time limit
+avoid_shared_nodes: true             # submit with --exclude for the nodes our running jobs use (a co-located job was SIGKILLed)
 max_attempts: 12                     # submissions per job (pieces, time limits); crashes stop it at once
 job_prefix: ngx_
