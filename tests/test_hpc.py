@@ -49,6 +49,9 @@ def test_job_scripts_fix_the_gpu_type_keep_data_private_and_stop_before_the_dead
     assert "NIFTYGEX_DEADLINE=$(( $(date -d \"$end\" +%s) - 480 ))" in text and "NIFTYGEX_WALK_MINUTES=42.0" in text
     assert "module load explorer anaconda3/2024.06 cuda/12.1.1" in text and "e3_attention_gru_1h_s11.done" in text
     assert "NIFTYGEX_WALK_MINUTES" not in render_script(job, SETTINGS, "v100-sxm2", None)
+    # Clean environment: inherited conda envs are deactivated and the job's python must be the niftygex env.
+    assert "conda deactivate" in text and "unset PYTHONPATH PYTHONHOME" in text and "PYTHONNOUSERSITE=1" in text
+    assert 'conda activate /home/u/envs/niftygex' in text and '"/home/u/envs/niftygex/bin/python" ]' in text
 
 
 def test_short_jobs_go_to_gpu_short_and_long_jobs_to_gpu_unless_courses_gpu_starts_sooner() -> None:

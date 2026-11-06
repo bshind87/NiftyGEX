@@ -17,7 +17,26 @@ results stay the Mac runs. Course material on the cluster is in `docs/hpc_guide/
 | Data and outputs (private: `go-rwx`, `umask 077` in every job) | `/scratch/shinde.b/niftygex/{data,outputs}` (`configs/paths.hpc.yaml`, `NIFTYGEX_PROFILE=hpc`) |
 | Job scripts, logs, markers, submission log | `/scratch/shinde.b/niftygex/outputs/hpc/{jobs,logs,status,submissions.tsv}` |
 
-Every Mac-side command uses the ssh host alias `explorer` (`hpc/remote.sh`, `hpc/push_data.sh`, `hpc/pull_results.sh`).
+**Clean environment.** The Explorer login shell activates an unrelated conda env from `~/.bashrc`, and SLURM copies
+the submitting shell's environment into jobs. Every job script and remote command therefore loads the modules,
+deactivates every inherited conda env, unsets `PYTHONPATH`/`PYTHONHOME`, sets `PYTHONNOUSERSITE=1`, activates
+`/home/shinde.b/envs/niftygex` explicitly and checks that `python` comes from it; nothing depends on another env.
+
+**Code access.** The repository is private: `hpc/sync_code.sh` clones `git@github-niftygex:bshind87/NiftyGEX.git`
+with a read-only deploy key (ssh host alias `github-niftygex` on Explorer).
+
+**Data transfer** goes through RC's transfer node (same `/home` and `/scratch`); rsync on the login node is cut off
+after about a minute. Add to `~/.ssh/config` on the Mac:
+
+```
+Host explorer-xfer
+    HostName xfer.discovery.neu.edu
+    User shinde.b
+    IdentityFile ~/.ssh/shinde.b-20261027T140307Z
+    IdentitiesOnly yes
+```
+
+Commands (`hpc/remote.sh`) use the ssh host alias `explorer`; data copies (`hpc/push_data.sh`, `hpc/pull_results.sh`) use `explorer-xfer`.
 Scratch is purged each semester: `hpc/pull_results.sh` copies results back to the Mac.
 
 ## Steps

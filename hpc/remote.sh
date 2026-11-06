@@ -10,8 +10,9 @@
 set -euo pipefail
 ALIAS=${HPC_ALIAS:-explorer}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-PY='source activate ~/envs/niftygex >/dev/null 2>&1; NIFTYGEX_PROFILE=hpc PYTHONPATH=src python'
-MODULES='module purge >/dev/null 2>&1; module load explorer anaconda3/2024.06 >/dev/null 2>&1'
+# A clean environment on every call: the login shell activates an unrelated conda env from ~/.bashrc.
+MODULES='module purge >/dev/null 2>&1; module load explorer anaconda3/2024.06 >/dev/null 2>&1; eval "$(conda shell.bash hook)"; for _ in 1 2 3 4 5; do if [ -n "${CONDA_PREFIX:-}" ]; then conda deactivate; fi; done; unset PYTHONPATH PYTHONHOME; export PYTHONNOUSERSITE=1'
+PY='conda activate ~/envs/niftygex && NIFTYGEX_PROFILE=hpc PYTHONPATH=src python'
 command=${1:?usage: remote.sh sync|setup|verify|jobs|scheduler|loop|status}
 shift
 case "$command" in

@@ -4,7 +4,7 @@
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
-**Code:** main runs on commit `12b11a0` (`git_dirty = false`); latest commit `e6d093f`, plus the uncommitted exploratory and HPC code (section I). Commits are made through GitHub Desktop.
+**Code:** main runs on commit `12b11a0` (`git_dirty = false`); exploratory Mac runs on `88e4bb3` (clean). Commits are made through GitHub Desktop.
 **Tests:** 177 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** exploratory experiments E1–E3 (Mac CPU + Explorer GPU); final presentation 2026-12-03 / 12-10
 
@@ -128,11 +128,11 @@ All labelled exploratory; registered in `configs/eval_exploratory_v2.yaml` (own 
 | ID | Task | Status | Summary |
 |---|---|---|---|
 | I1 | Registration | 🔄 | `configs/eval_exploratory_v2.yaml`: E1 (9 tests, Holm), E2 (4 tests vs L = 12, Holm), E3 (2 horizons, Holm), secondary scores, device rule, E3 training (patience 3, at most 30 epochs). To commit |
-| I2 | E1 diagnostics (t2) | ⏳ | Code: `scripts/run_exploratory_e1.py`, `forecast/residual.py` (HAR residual wrapper), `nn/extra_models.py` (state-only MLP, hybrid). Residual LightGBM, combination and conditional IC on the Mac; neural parts on Explorer |
+| I2 | E1 diagnostics (t2) | 🔄 | Mac (commit `88e4bb3`, clean): residual LightGBM run `b825612bdd2a35d3`; combination and conditional IC computed (`outputs/results/exploratory_e1.json`, family incomplete until the Explorer neural parts). Neural parts on Explorer ⏳ |
 | I3 | E2 more history (t2) | ⏳ | Code: multi-day loader and model (previous 5 / 10 days' 15:15 chains + L = 12), `scripts/run_exploratory_e2.py`; L = 24 and 72 via `run_neural.py`. All on Explorer, against an Explorer L = 12 reference |
-| I4 | E3 data layer | 🔄 | `configs/intraday.yaml` (separate from `data.yaml`, T2 hash unchanged), GEX and features stages `--grid intraday` (same 21-day logic) and `--verify` (T2 unchanged), `compute_intraday_rv.py`, strictly causal expiry choice (`causal_nearest_expiry`). Tests: `test_intraday_targets.py`, `test_intraday_features.py`. A trial RV build (uncommitted code) gave 23,712 rows, 23,031 with both horizons; 59 (1 h) and 83 (2 h) windows skipped for missing bars. Build on the commit still to do |
-| I5 | E3 ladder | ⏳ | `scripts/run_intraday.py`, `forecast/intraday.py` (past-only clock-time GEX normalization, intraday HAR, persistence), windowed token loader with causal-expiry masking; tests module `exploratory_e3.py` |
-| I6 | Explorer tooling | 🔄 | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Tested locally only; cluster calibration pending ❓ |
+| I4 | E3 data layer | ✅ | `configs/intraday.yaml` (separate from `data.yaml`, T2 hash unchanged), GEX and features stages `--grid intraday` (same 21-day logic) and `--verify` (T2 unchanged), `compute_intraday_rv.py`, strictly causal expiry choice (`causal_nearest_expiry`). Tests: `test_intraday_targets.py`, `test_intraday_features.py`. Built on `88e4bb3` (clean; intraday config hash `e3988a993d5b`): 23,712 rows, 23,031 with both horizons; 59 (1 h) and 83 (2 h) windows skipped for missing bars, 585 rows before the 60-day normal exists. T2 `--verify`: GEX outputs identical, features identical up to float rounding |
+| I5 | E3 ladder | 🔄 | Classical rungs on the Mac (`88e4bb3`, clean, 25 walks, 3.4 min per horizon). Mean per-walk IC, 1 h: persistence 0.541, intraday HAR 0.580, HAR + GEX 0.577, LightGBM 0.582; 2 h: 0.587, 0.600, 0.597, 0.597. Runs 1 h `fbddd4a3d99cc290`, `5865165aa21963bf`, `30a408391e241523`, `31e0b02db959a7ad`; 2 h `9bf82f720381571f`, `074c380aaf420d53`, `d7a44c8c43e361a4`, `c48071b7eaa11b18`. Neural rungs on Explorer ⏳ |
+| I6 | Explorer tooling | 🔄 | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Explorer: code synced (deploy key), environment build running (V100-SXM2, driver 545.23.08), data push in progress; calibration pending ❓ |
 | I7 | Reports | ⏳ | `docs/findings_exploratory_diagnostics.md`, `docs/findings_exploratory_history.md`, `docs/findings_intraday.md`, summary table, exploratory section in the final report |
 
 ### G. External tasks
@@ -274,6 +274,7 @@ From `outputs/reports/missing_data.md`:
 - Confirmed: the T2 normalized-GEX current-day value is the 15:15 snapshot total (matches the GEX stage on all 1,722 days with GEX; inputs available by 15:15).
 - One cluster job per seed; seeds merged on the Mac exactly as a local three-seed run.
 - Explorer: one GPU type (v100-sxm2) for every job; short jobs on gpu-short, long jobs on gpu, courses-gpu when `sbatch --test-only` says sooner; jobs stop before a walk they cannot finish (deadline from the SLURM end time) and resume. Data on scratch kept private (`go-rwx`, `umask 077`). `docs/hpc_guide/` (course material) is gitignored.
+- Explorer jobs start from a clean environment (the login shell activates an unrelated conda env); `configs/paths.hpc.yaml` is now committed (it was gitignored by `configs/paths.*.yaml`); the data push retries per folder with ssh keepalives after a dropped connection, and always restores `go-rwx`.
 - The T2 `--verify` checks pass: GEX stage outputs identical; aggregate features identical except `gex_concentration_hhi` at float rounding (≤ 3e-16, summation order varies between runs).
 
 ## Open questions

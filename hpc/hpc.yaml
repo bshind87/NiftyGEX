@@ -1,7 +1,8 @@
 # Explorer HPC settings for the exploratory neural runs (docs/hpc.md). $USER is expanded on the cluster (shinde.b).
-ssh_alias: explorer                      # ~/.ssh/config host alias on the Mac (key-based); used by every Mac-side script
+ssh_alias: explorer                      # ~/.ssh/config host alias on the Mac (key-based): sync, setup, jobs, scheduler, status
+xfer_alias: explorer-xfer                # alias for RC's transfer node xfer.discovery.neu.edu (data push and results pull)
 remote_user: shinde.b
-code_dir: /home/$USER/niftygex            # clone of the committed public repository (hpc/sync_code.sh)
+code_dir: /home/$USER/niftygex            # private clone at a commit, via the read-only deploy key (hpc/sync_code.sh)
 env_dir: /home/$USER/envs/niftygex
 scratch_dir: /scratch/$USER/niftygex      # data/ and outputs/ (configs/paths.hpc.yaml); private (go-rwx); purged each semester
 modules: [explorer, anaconda3/2024.06, cuda/12.1.1]

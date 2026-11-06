@@ -68,9 +68,15 @@ def render_script(job: Job, settings: dict[str, Any], gpu_type: str, walk_minute
 #SBATCH --mem={resources['mem']}
 #SBATCH --output={scratch}/outputs/hpc/logs/%x_%j.log
 umask 077                                   # the data and results stay private
+# Start clean: the login shell may activate another conda env (~/.bashrc) and SLURM copies that environment in.
 module purge
 module load {' '.join(settings['modules'])}
-source activate {settings['env_dir']}
+eval "$(conda shell.bash hook)"
+for _ in 1 2 3 4 5; do if [ -n "${{CONDA_PREFIX:-}}" ]; then conda deactivate; fi; done
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1
+conda activate {settings['env_dir']}
+[ "$(command -v python)" = "{settings['env_dir']}/bin/python" ] || {{ echo "python is $(command -v python), not {settings['env_dir']}" >&2; exit 2; }}
 cd {code}
 end=$(scontrol show job "$SLURM_JOB_ID" | grep -oP 'EndTime=\\K\\S+')
 export NIFTYGEX_PROFILE=hpc NIFTYGEX_DEVICE=cuda NIFTYGEX_GPU_TYPE={gpu_type} PYTHONPATH=src

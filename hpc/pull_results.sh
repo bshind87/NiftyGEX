@@ -1,9 +1,9 @@
 #!/bin/bash
 # From the Mac: copy the cluster's results store, job logs, status markers and reports back (scratch is purged each
 # semester), then merge the seeds into the local results store.
-#   bash hpc/pull_results.sh [--no-merge]          (ssh host alias "explorer")
+#   bash hpc/pull_results.sh [--no-merge]          (ssh host alias "explorer-xfer": the data-transfer node)
 set -euo pipefail
-ALIAS=${HPC_ALIAS:-explorer}
+ALIAS=${HPC_XFER:-explorer-xfer}
 REMOTE_USER=${HPC_USER:-shinde.b}
 SRC="$ALIAS:/scratch/$REMOTE_USER/niftygex/outputs"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

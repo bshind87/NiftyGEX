@@ -14,6 +14,7 @@ docs/hpc_guide/
 
 # Machine-specific path profiles
 configs/paths.*.yaml
+!configs/paths.hpc.yaml
 !configs/paths.local.yaml
 !configs/paths.example.yaml
 

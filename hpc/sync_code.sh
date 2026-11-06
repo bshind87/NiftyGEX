@@ -4,7 +4,7 @@
 # The checkout must be clean: every cluster run records its commit and git_dirty.
 set -euo pipefail
 COMMIT=${1:?usage: sync_code.sh <commit>}
-REPO=${NIFTYGEX_REPO:-https://github.com/bshind87/NiftyGEX.git}
+REPO=${NIFTYGEX_REPO:-git@github-niftygex:bshind87/NiftyGEX.git}   # private repo: read-only deploy key via the ssh alias
 CODE_DIR=/home/$USER/niftygex
 SCRATCH=/scratch/$USER/niftygex
 
@@ -20,5 +20,5 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 umask 077
 mkdir -p "$SCRATCH/data" "$SCRATCH/outputs/hpc/logs" "$SCRATCH/outputs/hpc/status" "$SCRATCH/outputs/hpc/jobs"
-chmod -R go-rwx "$SCRATCH"   # the data is private
+chmod -R go-rwx "$SCRATCH" "$CODE_DIR"   # the data and the code are private
 echo "code at $(git rev-parse --short HEAD) in $CODE_DIR; scratch layout in $SCRATCH"

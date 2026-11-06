@@ -1,0 +1,4 @@
+# Explorer HPC profile (NIFTYGEX_PROFILE=hpc). Code lives in /home/$USER/niftygex; data and outputs in /scratch,
+# which is purged each semester (hpc/pull_results.sh copies results back to the Mac). $USER is expanded at load time.
+data_root: /scratch/$USER/niftygex/data
+outputs_root: /scratch/$USER/niftygex/outputs
