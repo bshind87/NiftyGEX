@@ -162,3 +162,16 @@ def test_multiday_inputs_use_previous_trading_days_only(tmp_path) -> None:
     # Row for day 2: previous days 0 and 1 (oldest first), then today's lag-0 snapshot.
     assert inputs.tokens[0, :, 0, 0].tolist() == [0.0, 1.0, 2.0]
     assert inputs.tokens[2, :, 0, 0].tolist() == [2.0, 3.0, 4.0]
+
+
+def test_exploratory_config_parses_and_registers_every_family() -> None:
+    from niftygex_eval.config import load_exploratory_config
+
+    cfg = load_exploratory_config()
+    v2 = cfg["exploratory"]
+    assert v2["label"] == "exploratory" and len(cfg["exploratory_hash"]) == 64
+    assert len(v2["e1"]["tests"]) == 9 and len(v2["e2"]["tests"]) == 4 and len(v2["e3"]["tests"]) == 2
+    assert v2["e3"]["training"]["patience"] == 3 and v2["e3"]["training"]["max_epochs"] == 30
+    assert all(isinstance(c, str) for c in v2["e3"]["intraday_har_columns"])
+    assert v2["references"]["main_eval_config_hash"].startswith("552a3501001a")
+    assert v2["compute"]["gpu_type"] == "v100-sxm2"

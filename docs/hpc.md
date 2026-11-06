@@ -12,51 +12,48 @@ results stay the Mac runs. Course material on the cluster is in `docs/hpc_guide/
 
 | What | Where |
 |---|---|
-| Code (a clean clone of the committed repository) | `/home/$USER/niftygex` |
-| Conda environment | `/home/$USER/envs/niftygex` (`env/environment-cuda.yml` + the PyTorch CUDA wheel) |
-| Data and outputs | `/scratch/$USER/niftygex/{data,outputs}` (`configs/paths.hpc.yaml`, `NIFTYGEX_PROFILE=hpc`) |
-| Job scripts, logs, markers | `/scratch/$USER/niftygex/outputs/hpc/{jobs,logs,status}` |
+| Code (a clean clone of the public repository at a commit) | `/home/shinde.b/niftygex` |
+| Conda environment | `/home/shinde.b/envs/niftygex` (`env/environment-cuda.yml` + the PyTorch CUDA wheel) |
+| Data and outputs (private: `go-rwx`, `umask 077` in every job) | `/scratch/shinde.b/niftygex/{data,outputs}` (`configs/paths.hpc.yaml`, `NIFTYGEX_PROFILE=hpc`) |
+| Job scripts, logs, markers, submission log | `/scratch/shinde.b/niftygex/outputs/hpc/{jobs,logs,status,submissions.tsv}` |
 
+Every Mac-side command uses the ssh host alias `explorer` (`hpc/remote.sh`, `hpc/push_data.sh`, `hpc/pull_results.sh`).
 Scratch is purged each semester: `hpc/pull_results.sh` copies results back to the Mac.
 
 ## Steps
 
-1. **Commit** on the Mac (GitHub Desktop) and note the commit id.
-2. **Code and environment** (login node, then a GPU job):
-   ```bash
-   ssh <user>@login.explorer.northeastern.edu
-   curl -O https://raw.githubusercontent.com/bshind87/NiftyGEX/<commit>/hpc/sync_code.sh   # or copy it over
-   bash sync_code.sh <commit>
-   cd ~/niftygex && sbatch hpc/setup_env.sbatch      # builds the env on gpu-short, checks the driver and CUDA, runs the nn tests
-   ```
-   If the log says torch does not see the GPU, resubmit with an older CUDA wheel:
-   `sbatch --export=ALL,TORCH_INDEX=https://download.pytorch.org/whl/cu124 hpc/setup_env.sbatch`.
-3. **Data** (Mac, then a CPU job): `HPC_USER=<user> bash hpc/push_data.sh`, then on the cluster
-   `sbatch hpc/verify_transfer.sbatch` (every file's size, rows and SHA-256 against the Mac manifests;
-   `outputs/reports/transfer_check.json`).
-4. **Job scripts**: `NIFTYGEX_PROFILE=hpc PYTHONPATH=src python hpc/make_jobs.py --gpu-type v100-sxm2` (or `auto`: h200 when
-   `sinfo` shows idle H200 nodes). One script per experiment, model, horizon and seed; each trains all walks of
-   one run with per-walk checkpoints.
-5. **Calibration**: `NIFTYGEX_PROFILE=hpc PYTHONPATH=src python hpc/scheduler.py --once --waves calibration` (two 2-walk
-   attention + GRU jobs on gpu-short: T2 at L = 12 and E3 h = 1). Each log prints the minutes and peak GPU memory
-   per walk; compare with the Mac (87 min for the full 3-seed L = 12 run).
-6. **Waves**: `sbatch hpc/scheduler.sbatch` keeps up to 8 jobs submitted on `gpu` (4 run at once) plus 1 on
-   `courses-gpu`, in priority order (references, E1, E3, E2, L = 72 last), and resubmits a job stopped at the
-   8-hour limit; it resumes from its checkpoints. To poll from the Mac instead:
-   `ssh <user>@login... 'cd ~/niftygex && NIFTYGEX_PROFILE=hpc PYTHONPATH=src ~/envs/niftygex/bin/python hpc/scheduler.py --once'`.
-   Remove a partition from `hpc/hpc.yaml` to use the others only (e.g. `courses-gpu` alone).
-7. **Status**: `bash hpc/status.sh` (queue, accounting, done / failed markers). A crashed job writes a `.failed`
-   marker and is not resubmitted until `hpc/scheduler.py --once --retry-failed`.
-8. **Results** (Mac): `HPC_USER=<user> bash hpc/pull_results.sh` copies the results store, logs and markers to
-   `outputs/hpc_pull/` and runs `scripts/merge_seeds.py`: each run's three seeds are averaged per row exactly as
-   a local three-seed run, every walk is rescored, and the merged runs are listed where the E1–E3 test scripts read
+1. **Commit and push** on the Mac (GitHub Desktop); note the commit id.
+2. **Code**: `bash hpc/remote.sh sync <commit>` (clone or update, refuse a dirty tree, create the private scratch layout).
+3. **Environment**: `bash hpc/remote.sh setup` (gpu-short, v100-sxm2: builds the env, prints the driver, checks
+   `torch.cuda`, runs the nn tests). If torch does not see the GPU, resubmit with an older wheel:
+   `ssh explorer 'cd ~/niftygex && sbatch --export=ALL,TORCH_INDEX=https://download.pytorch.org/whl/cu124 hpc/setup_env.sbatch'`.
+4. **Data**: `bash hpc/push_data.sh` (rsync, then `chmod -R go-rwx`), then `bash hpc/remote.sh verify` (every file's size,
+   rows and SHA-256 against the Mac manifests; `outputs/reports/transfer_check.json`).
+5. **Job scripts**: `bash hpc/remote.sh jobs v100-sxm2` (53 scripts; one per experiment, model, horizon and seed).
+6. **Calibration**: `bash hpc/remote.sh scheduler --waves calibration` (two 2-walk attention + GRU jobs: T2 at L = 12 and
+   E3 h = 1). Logs print minutes and peak GPU memory per walk. The measured walk minutes go into `hpc/estimates.yaml`
+   (committed), then step 5 again so each script knows its walk length.
+7. **Waves**: `bash hpc/remote.sh loop` submits `hpc/scheduler.sbatch` (a CPU job polling every 5 minutes); or run
+   `bash hpc/remote.sh scheduler` from the Mac now and then. Routing (`hpc/hpc.yaml`):
+   - short jobs (under 2 h: references, E1 neural, E2 L = 24 and multi-day, E3 DeepSets and attention) go to
+     **gpu-short** (2 running / 4 submitted, `--time 01:55:00`; RC also lists a 1-GPU-per-user limit there);
+   - long jobs (E3 attention + GRU, E2 L = 72) are first queued on **gpu** (4 / 8, 8 h) for the night;
+   - **courses-gpu** (1 job, 8 h) takes any job whose `sbatch --test-only` start is earlier there;
+   - a long job still pending on gpu moves to chained **gpu-short pieces** (1 h 50 min) when gpu-short has a free slot,
+     no short job is waiting, its walks fit a piece, and the piece starts at least 30 min sooner;
+   - every job stops starting walks 8 minutes before its time limit and is resubmitted; it resumes from its walk
+     checkpoints. A crash writes a `.failed` marker and stops that job until `--retry-failed`.
+8. **Status**: `bash hpc/remote.sh status`.
+9. **Results** (Mac): `bash hpc/pull_results.sh` copies the results store, logs, markers and reports to
+   `outputs/hpc_pull/` and runs `scripts/merge_seeds.py`: each run's three seeds are averaged per row exactly as a
+   local three-seed run, every walk is rescored, and the merged runs are listed where the E1–E3 test scripts read
    them (`neural_comparison_hpc.json`, `neural_comparison_window_24_hpc.json`, `exploratory_e{1,2,3}_runs.json`).
 
 ## Records
 
-Every run spec has the commit, `git_dirty`, device and requested GPU type; every walk records the SLURM job id,
-partition, host, GPU name and peak GPU memory (outside the spec, so a resubmitted job resumes the same run).
-`outputs/hpc/submissions.tsv` logs each submission.
+Every run spec has the commit, `git_dirty`, device and GPU type; every walk records the SLURM job id, partition, node,
+GPU name and peak GPU memory (outside the spec, so a resubmitted job resumes the same run), and the run summary
+lists them. `outputs/hpc/submissions.tsv` logs each submission and move with its partition, time limit and commit.
 
 ## Known issue: Apple-GPU memory on long local runs
 

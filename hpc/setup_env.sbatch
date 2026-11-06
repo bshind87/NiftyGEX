@@ -11,7 +11,8 @@
 #SBATCH --mem=16G
 #SBATCH --time=01:30:00
 #SBATCH --output=/scratch/%u/niftygex/outputs/hpc/logs/%x_%j.log
-set -euo pipefail
+set -eo pipefail                            # no -u: module and conda scripts use unset variables
+umask 077                                   # the data and results stay private
 
 ENV_DIR=/home/$USER/envs/niftygex
 CODE_DIR=/home/$USER/niftygex

@@ -25,7 +25,7 @@ from niftygex.features.aggregate import (
     trailing_rv_features,
     vol_surface_features,
 )
-from niftygex.io.parquet import describe_files, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
+from niftygex.io.parquet import describe_files, frame_differences, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
 from niftygex.io.regimes import lot_sizes_by_expiry, regime_marker_flags
 
 STAGE = "features"
@@ -105,10 +105,11 @@ def main() -> None:
     features_root = Path(config["paths"]["features_root"])
     owned = "intraday_aggregate" if intraday else "aggregate"
     if args.verify:
-        current = pl.read_parquet(features_root / owned / "aggregate.parquet").select(frame.columns)
-        if not frame.equals(current):
-            raise SystemExit("--verify: the aggregate features differ from the current output")
-        print(f"--verify: aggregate features identical ({frame.height} rows)")
+        result = frame_differences(frame, pl.read_parquet(features_root / owned / "aggregate.parquet").select(frame.columns))
+        if result["problems"]:
+            raise SystemExit(f"--verify: the aggregate features differ from the current output: {result['problems']}")
+        print(f"--verify: aggregate features identical ({frame.height} rows)"
+              + (f"; float rounding only in {result['rounding']}" if result["rounding"] else ""))
         return
     with staged_outputs(features_root, [owned], config) as stage:
         write_parquet(frame, stage / owned / "aggregate.parquet")

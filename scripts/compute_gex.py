@@ -22,7 +22,7 @@ from niftygex.exposure.gex import dealer_signs, strike_gex
 from niftygex.exposure.levels import call_wall, flip_level, max_gex_strike, max_pain, put_wall
 from niftygex.exposure.selection import INTRADAY_TARGET, TARGETS, causal_nearest_expiry, total_gex_expiries
 from niftygex.exposure.snapshots import as_of, intraday_grid, snapshot_grid
-from niftygex.io.parquet import describe_files, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
+from niftygex.io.parquet import describe_files, frame_differences, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
 from niftygex.validation.leakage import assert_available_by
 
 STAGE = "gex"
@@ -118,9 +118,10 @@ def verify_outputs(exposure_root: Path, outputs: dict[str, pl.DataFrame]) -> Non
     """Compare recomputed T2 outputs with the files on disk; raise on any difference."""
     for name, frame in outputs.items():
         current = pl.read_parquet(exposure_root / name / "*.parquet").select(frame.columns).sort(frame.columns)
-        if not frame.sort(frame.columns).equals(current):
-            raise SystemExit(f"--verify: {name} differs from the current output")
-        print(f"--verify: {name} identical ({frame.height} rows)")
+        result = frame_differences(frame.sort(frame.columns), current)
+        if result["problems"]:
+            raise SystemExit(f"--verify: {name} differs from the current output: {result['problems']}")
+        print(f"--verify: {name} identical ({frame.height} rows)" + (f"; float rounding only in {result['rounding']}" if result["rounding"] else ""))
 
 
 def main() -> None:

@@ -133,14 +133,14 @@ def run_tests(cfg: dict) -> None:
     neural = json.loads((root / cfg["exploratory"]["references"]["neural"]).read_text())
     if classical["eval_config_hash"] != cfg["exploratory"]["references"]["main_eval_config_hash"]:
         raise SystemExit("The classical reference runs are not from the main eval config")
-    explored = json.loads((root / "exploratory_e1_runs.json").read_text())
+    index = root / "exploratory_e1_runs.json"
+    explored = json.loads(index.read_text()) if index.exists() else {}
     missing = [p for p in MODEL_PARTS if p not in explored]
-    if missing:
-        raise SystemExit(f"E1 runs missing: {missing}")
     # Neural-vs-neural comparisons use the cluster references (same device and GPU type); the rest use the main runs.
-    hpc = json.loads((root / cfg["exploratory"]["references"]["neural_hpc"]).read_text())
+    hpc_path = root / cfg["exploratory"]["references"]["neural_hpc"]
+    hpc = json.loads(hpc_path.read_text()) if hpc_path.exists() else {"runs": {}}
     runs = {**classical["runs"], **neural["runs"], **{f"{m}_hpc": r for m, r in hpc["runs"].items()},
-            **{RUN_NAMES.get(p, p): explored[p] for p in MODEL_PARTS}}
+            **{RUN_NAMES.get(p, p): explored[p] for p in MODEL_PARTS if p in explored}}
     loaded = {name: load_run(root, run_id) for name, run_id in runs.items()}
     data_hashes = {json.loads((root / "runs" / r / "run.json").read_text())["spec"]["data_config_hash"] for r in runs.values()}
     if len(data_hashes) != 1:
@@ -150,23 +150,29 @@ def run_tests(cfg: dict) -> None:
         raise SystemExit("E1 runs do not share the same test rows")
 
     har_predictions = loaded["har"][0]
-    residual = {name: residual_ic_by_walk(loaded[name][0], har_predictions) for name in ("residual_lightgbm", "residual_deepsets", "residual_attention")}
+    residual = {name: residual_ic_by_walk(loaded[name][0], har_predictions)
+                for name in ("residual_lightgbm", "residual_deepsets", "residual_attention") if name in loaded}
     combined_predictions, combined_walks = combine({m: loaded[m][0] for m in e1["combination"]["members"]})
     loaded["combination"] = (combined_predictions, combined_walks)
 
-    results = []
+    # Runs still to come (the cluster's neural parts and references) leave their tests pending; Holm is applied
+    # only when the whole registered family is in.
+    results, pending = [], []
     for test in e1["tests"]:
-        if test.get("vs") == "zero":
+        if test["a"] not in loaded or test.get("b", "har") not in loaded:
+            pending.append(test["name"])
+        elif test.get("vs") == "zero":
             stats = one_sample(residual[test["a"]]["residual_ic"].to_numpy())
             results.append({"test": test["name"], "p": stats.get("p_two_sided"), **stats})
         else:
             stats = paired(loaded[test["a"]][1], loaded[test["b"]][1], test["metric"], higher_is_better=True)
             results.append({"test": test["name"], "p": stats.get("p_two_sided"), **stats})
-    tests = family("E1", "exploratory E1 primary tests (configs/eval_exploratory_v2.yaml e1.tests)", results, alpha)
+    tests = (family("E1", "exploratory E1 primary tests (configs/eval_exploratory_v2.yaml e1.tests)", results, alpha) if not pending
+             else {"family": "E1", "complete": False, "pending": pending, "unadjusted": results})
 
     lags = int(cfg["eval"]["forecast"]["dm_max_lags"])
     secondary = {}
-    for other in ("deepsets_hpc", "attention_hpc", "attention_gru_hpc"):
+    for other in [m for m in ("deepsets_hpc", "attention_hpc", "attention_gru_hpc") if m in loaded and "state_mlp" in loaded]:
         secondary[f"state_mlp_vs_{other}"] = {
             **{m: paired(loaded["state_mlp"][1], loaded[other][1], m, higher_is_better=(m == "ic")) for m in ("ic", "rmse", "qlike")},
             "dm_squared": diebold_mariano(loaded["state_mlp"][0], loaded[other][0], "squared", lags),
@@ -191,7 +197,7 @@ def run_tests(cfg: dict) -> None:
     }
     boot = cfg["exploratory"]["bootstrap"]
     conditional = {}
-    for model in [*conditional_cfg["models"], "residual_lightgbm", "hybrid_attention_gru", "combination"]:
+    for model in [m for m in [*conditional_cfg["models"], "residual_lightgbm", "hybrid_attention_gru", "combination"] if m in loaded]:
         frame = loaded[model][0].select("snapshot_at", "walk_id", "y", "prediction").join(subsets, on="snapshot_at", how="left")
         conditional[model] = {name: pooled_ic_bootstrap(frame.filter(expr.fill_null(False)), int(boot["reps"]), int(boot["seed"]))
                               for name, expr in definitions.items()}
@@ -203,7 +209,7 @@ def run_tests(cfg: dict) -> None:
         if name in residual:
             summary[name]["residual_ic"] = float(residual[name]["residual_ic"].mean())
     out = {"label": "exploratory", "exploratory_config_hash": cfg["exploratory_hash"], "eval_config_hash": classical["eval_config_hash"],
-           "data_config_hash": data_hashes.pop(), "runs": runs, "summary": summary,
+           "data_config_hash": data_hashes.pop(), "runs": runs, "missing_runs": missing, "summary": summary,
            "residual_ic_by_walk": {k: v.to_dicts() for k, v in residual.items()}, "tests": tests, "secondary": secondary,
            "conditional_ic": conditional, "subset_definitions": {k: str(v) for k, v in definitions.items()}}
     path = root / "exploratory_e1.json"

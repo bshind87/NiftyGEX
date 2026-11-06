@@ -10,7 +10,8 @@
 #SBATCH --mem=2G
 #SBATCH --time=48:00:00
 #SBATCH --output=/scratch/%u/niftygex/outputs/hpc/logs/%x_%j.log
-set -euo pipefail
+set -eo pipefail                            # no -u: module and conda scripts use unset variables
+umask 077                                   # the data and results stay private
 module purge
 module load explorer anaconda3/2024.06
 source activate /home/$USER/envs/niftygex

@@ -17,6 +17,10 @@ KEEP = ["snapshot_at", "trade_date", "cycle"]
 # Process isolation (scripts/run_isolated.py): a process trains at most this many new walks, then exits with
 # MORE_WALKS so the launcher starts a fresh process; finished walks resume from their checkpoints.
 WALK_LIMIT_ENV, MORE_WALKS = "NIFTYGEX_WALK_LIMIT", 75
+# Cluster jobs: NIFTYGEX_DEADLINE (epoch seconds, set from the SLURM end time) stops a process before a walk it
+# cannot finish, so a time-limited job or a chained piece never loses a half-trained walk. The expected walk time
+# is the longest walk so far in this process, or NIFTYGEX_WALK_MINUTES (from calibration) before the first walk.
+DEADLINE_ENV, WALK_MINUTES_ENV = "NIFTYGEX_DEADLINE", "NIFTYGEX_WALK_MINUTES"
 
 
 def gpu_driver_memory() -> str:
@@ -58,6 +62,10 @@ def run_walks(table: pl.DataFrame, walks: list[Walk], make_model: Callable[[], F
     limit = int(os.environ[WALK_LIMIT_ENV]) if os.environ.get(WALK_LIMIT_ENV) else None
     if limit is not None and checkpoint is None:
         raise ValueError(f"{WALK_LIMIT_ENV} needs a checkpointed run")
+    deadline = float(os.environ[DEADLINE_ENV]) if os.environ.get(DEADLINE_ENV) else None
+    if deadline is not None and checkpoint is None:
+        raise ValueError(f"{DEADLINE_ENV} needs a checkpointed run")
+    expected = 60.0 * float(os.environ.get(WALK_MINUTES_ENV) or 0)
     predictions, per_walk, trained = [], [], 0
     for walk in walks:
         saved = None if checkpoint is None else (checkpoint / f"walk_{walk.walk_id}.parquet", checkpoint / f"walk_{walk.walk_id}_metrics.parquet")
@@ -72,6 +80,9 @@ def run_walks(table: pl.DataFrame, walks: list[Walk], make_model: Callable[[], F
             continue
         if limit is not None and trained >= limit:
             print(f"walk limit {limit} reached; continuing in a new process", flush=True)
+            sys.exit(MORE_WALKS)
+        if deadline is not None and time.time() + expected > deadline:
+            print(f"walk {walk.walk_id} would end after the job's deadline (expected {expected / 60:.0f} min); stopping for the next job", flush=True)
             sys.exit(MORE_WALKS)
         started = time.time()
         torch = sys.modules.get("torch")
@@ -92,6 +103,7 @@ def run_walks(table: pl.DataFrame, walks: list[Walk], make_model: Callable[[], F
                          "test_start": test["trade_date"].min(), "test_end": test["trade_date"].max(),
                          **regression_metrics(y, prediction), **getattr(model, "summary", dict)(), "seconds": time.time() - started, **compute_info()})
         trained += 1
+        expected = max(expected, per_walk[-1]["seconds"])
         del model
         print(f"walk {walk.walk_id} end, {per_walk[-1]['seconds'] / 60:.1f} min{gpu_driver_memory()}", flush=True)
         if saved is not None:

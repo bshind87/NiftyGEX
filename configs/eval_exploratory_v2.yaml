@@ -82,7 +82,7 @@ e3:
   outcome: "log_rv_ratio_{h}h"            # log(RV over (T, T + h] / 60-day normal for the same clock window)
   models: [persistence, intraday_har, har_gex, lightgbm, deepsets, attention, attention_gru]
   persistence: "RV over (max(T - h, 09:20), T] / its 60-day clock-window normal"
-  intraday_har_columns: [rv_last_30m, rv_last_60m, rv_today_so_far, rv_yesterday, rv_yesterday_same_window_{h}h, rv_normal_{h}h]   # logs, plus time-of-day dummies
+  intraday_har_columns: [rv_last_30m, rv_last_60m, rv_today_so_far, rv_yesterday, "rv_yesterday_same_window_{h}h", "rv_normal_{h}h"]   # logs, plus time-of-day dummies
   gex_columns: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_sign_inferred]
   ridge_alphas: [0.1, 1.0, 10.0, 100.0]
   # Normalized GEX at snapshot T: total GEX / mean |total GEX| at the same clock time over the previous 250 trading

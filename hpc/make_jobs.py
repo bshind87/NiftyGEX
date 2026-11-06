@@ -4,7 +4,8 @@
 
 Scripts go to /scratch/$USER/niftygex/outputs/hpc/jobs/, with jobs.json listing them in submission priority.
 The GPU type is fixed here for every job (device rule); "auto" takes h200 when sinfo shows idle H200 nodes,
-else v100-sxm2. Light work only, so it may run on the login node.
+else v100-sxm2. Per-walk minutes from hpc/estimates.yaml (written after calibration) go into each script, so a
+chained piece never starts a walk it cannot finish. Light work only, so it may run on the login node.
 """
 from __future__ import annotations
 
@@ -43,11 +44,14 @@ def main() -> None:
     directory = Path(hpc["scratch_dir"]) / "outputs" / "hpc" / "jobs"
     directory.mkdir(parents=True, exist_ok=True)
     listed = []
+    estimates_path = REPO_ROOT / "hpc" / "estimates.yaml"
+    walk_minutes = (yaml.safe_load(estimates_path.read_text()) or {}).get("walk_minutes", {}) if estimates_path.exists() else {}
     for job in job_list(seeds, horizons):
         path = directory / f"{job.name}.sbatch"
-        path.write_text(render_script(job, hpc, gpu_type))
-        listed.append({"name": job.name, "wave": job.wave, "command": job.command, "calibration": job.calibration, "script": str(path)})
-    (directory / "jobs.json").write_text(json.dumps({"gpu_type": gpu_type, "commit": commit, "jobs": listed}, indent=2) + "\n")
+        path.write_text(render_script(job, hpc, gpu_type, walk_minutes.get(job.group)))
+        listed.append({"name": job.name, "wave": job.wave, "command": job.command, "kind": job.kind, "group": job.group, "script": str(path)})
+    (directory / "jobs.json").write_text(json.dumps({"gpu_type": gpu_type, "commit": commit, "walk_minutes": walk_minutes, "jobs": listed},
+                                                    indent=2) + "\n")
     waves = {}
     for job in listed:
         waves[job["wave"]] = waves.get(job["wave"], 0) + 1

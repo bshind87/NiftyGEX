@@ -5,6 +5,8 @@ outputs/*
 
 # Course deliverables (Word reports) are shared directly, not committed
 docs/deliverables/
+# Explorer HPC course material (reference only; nothing depends on it)
+docs/hpc_guide/
 
 # Generated market-data files
 *.parquet
@@ -24,3 +26,4 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 .DS_Store
+data/

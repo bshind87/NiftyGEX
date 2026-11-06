@@ -5,7 +5,7 @@
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** main runs on commit `12b11a0` (`git_dirty = false`); latest commit `e6d093f`, plus the uncommitted exploratory and HPC code (section I). Commits are made through GitHub Desktop.
-**Tests:** 172 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 177 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** exploratory experiments E1–E3 (Mac CPU + Explorer GPU); final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -18,8 +18,8 @@ Exploratory experiments E1–E3 (`configs/eval_exploratory_v2.yaml`, registered 
 
 1. **Commit** the exploratory and HPC code (section I) in GitHub Desktop.
 2. **Mac CPU, on that commit:** E3 data build (`compute_gex.py --grid intraday`, `compute_features.py --grid intraday`, `compute_intraday_rv.py`) plus the T2-unchanged check (`--verify` on both stages), E3 classical ladder (`run_intraday.py --horizon 1|2 --models persistence intraday_har har_gex lightgbm`), E1 residual LightGBM. Then commit.
-3. **Explorer:** `hpc/sync_code.sh`, `hpc/setup_env.sbatch`, `hpc/push_data.sh` + `hpc/verify_transfer.sbatch`, `hpc/make_jobs.py`, calibration wave → stop for go-ahead with updated estimates.
-4. **GPU waves** (`hpc/scheduler.sbatch`): references, E1, E3, E2, L = 72 last. Pull, merge seeds, E1–E3 tests and reports, this page.
+3. **Explorer** (`bash hpc/remote.sh …`, ssh alias `explorer`): sync, setup (CUDA check on v100-sxm2), `hpc/push_data.sh` (+ `chmod go-rwx`), verify, jobs, calibration wave on gpu-short → stop for go-ahead with updated estimates (`hpc/estimates.yaml`).
+4. **GPU waves** (`bash hpc/remote.sh loop`): short jobs on gpu-short, long jobs (E3 attention + GRU, E2 L = 72) queued on gpu for the night, courses-gpu when sooner, chained gpu-short pieces for pending long jobs. Pull, merge seeds, E1–E3 tests and reports, this page.
 5. **Final report** regeneration after all exploratory results; final slides (Dec 3/10).
 
 ## Known issues
@@ -273,6 +273,8 @@ From `outputs/reports/missing_data.md`:
 - E3 data layer kept out of `configs/data.yaml` (`configs/intraday.yaml`) so the T2 data hash and stages are unchanged; E3 expiry choice strictly causal at each snapshot; E3 uses T2's same-day-expiry rule, so the stored token history applies.
 - Confirmed: the T2 normalized-GEX current-day value is the 15:15 snapshot total (matches the GEX stage on all 1,722 days with GEX; inputs available by 15:15).
 - One cluster job per seed; seeds merged on the Mac exactly as a local three-seed run.
+- Explorer: one GPU type (v100-sxm2) for every job; short jobs on gpu-short, long jobs on gpu, courses-gpu when `sbatch --test-only` says sooner; jobs stop before a walk they cannot finish (deadline from the SLURM end time) and resume. Data on scratch kept private (`go-rwx`, `umask 077`). `docs/hpc_guide/` (course material) is gitignored.
+- The T2 `--verify` checks pass: GEX stage outputs identical; aggregate features identical except `gex_concentration_hhi` at float rounding (≤ 3e-16, summation order varies between runs).
 
 ## Open questions
 

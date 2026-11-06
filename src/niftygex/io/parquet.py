@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 from niftygex import __version__
@@ -141,3 +142,24 @@ def write_report(config: dict[str, Any], name: str, payload: dict[str, Any]) -> 
     body = {"report": name, "config_hash": config_hash(config), **payload}
     path.write_text(json.dumps(body, indent=2, default=str) + "\n")
     return path
+
+
+def frame_differences(new: pl.DataFrame, current: pl.DataFrame, rel_tol: float = 1e-12) -> dict[str, Any]:
+    """Compare a recomputed frame with the stored one (same row order): non-float columns must be equal, float
+    columns may differ by float rounding up to ``rel_tol`` (summation order). Returns problems and max differences."""
+    problems, rounding = [], {}
+    if new.columns != current.columns or new.height != current.height:
+        return {"problems": [f"shape or columns differ: {new.shape} vs {current.shape}"], "rounding": {}}
+    for column in new.columns:
+        a, b = new[column], current[column]
+        if a.equals(b):
+            continue
+        if a.dtype.is_float() and b.dtype.is_float() and a.is_null().equals(b.is_null()):
+            x, y = a.to_numpy(), b.to_numpy()
+            gap = np.nanmax(np.abs(x - y)) if np.isfinite(x).any() else 0.0
+            scale = max(float(np.nanmax(np.abs(y))) if np.isfinite(y).any() else 0.0, 1.0)
+            if np.array_equal(np.isnan(x), np.isnan(y)) and gap <= rel_tol * scale:
+                rounding[column] = float(gap)
+                continue
+        problems.append(column)
+    return {"problems": problems, "rounding": rounding}
