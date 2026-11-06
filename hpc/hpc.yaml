@@ -1,0 +1,22 @@
+# Explorer HPC settings for the exploratory neural runs (docs/hpc.md). $USER is expanded on the cluster.
+host: login.explorer.northeastern.edu
+code_dir: /home/$USER/niftygex            # clone of the committed repository (hpc/sync_code.sh)
+env_dir: /home/$USER/envs/niftygex
+scratch_dir: /scratch/$USER/niftygex      # data/ and outputs/ (configs/paths.hpc.yaml); purged each semester
+modules: [explorer, anaconda3/2024.06, cuda/12.1.1]
+torch: {version: 2.10.0, index_url: https://download.pytorch.org/whl/cu126}
+
+# One GPU type for every job of the experiments (device rule, configs/eval_exploratory_v2.yaml compute.gpu_type).
+# "auto" picks h200 when sinfo shows idle H200 nodes at job-generation time, else v100-sxm2; the choice is written
+# into every job script and recorded in each run spec.
+gpu_type: v100-sxm2
+resources: {mem: 32G, cpus_per_task: 4, time: "08:00:00"}
+calibration: {partition: gpu-short, time: "02:00:00", max_submitted: 2}   # gpu-short: 2 running / 4 submitted, 1 GPU per user
+
+# Submission limits per partition (running / submitted), from RC's partition table. The scheduler fills them in
+# order and never exceeds them; drop a partition here to use only the others (e.g. courses-gpu alone).
+partitions:
+  - {name: gpu, max_running: 4, max_submitted: 8}
+  - {name: courses-gpu, max_running: 1, max_submitted: 1}
+max_attempts: 6          # resubmissions after a time limit (each attempt resumes from the walk checkpoints)
+job_prefix: ngx_

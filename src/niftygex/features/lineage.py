@@ -41,6 +41,19 @@ LINEAGE = {
     "lot_size": ("Calendar", CAL, "known in advance"),
     "regime_post_weekly_expiry_rationalisation": ("Calendar", CAL, "known in advance"),
 }
+# Exploratory E3 (configs/intraday.yaml): the aggregate features above are also built on the 15-minute intraday grid
+# (data/features/intraday_aggregate/, same definitions, as of each snapshot); these are the extra intraday inputs
+# from data/features/intraday_rv/. Times are clock windows (a, b] of 5-minute front-month futures returns.
+INTRADAY_LINEAGE = {
+    **{f"rv_last_{w}m": ("Intraday volatility", FUT, f"returns in (max(T - {w} min, 09:20), T], known by T") for w in (30, 60, 120)},
+    "rv_today_so_far": ("Intraday volatility", FUT, "returns in (09:20, T], known by T"),
+    "rv_yesterday": ("Intraday volatility", FUT, "the previous trading day's full-session RV"),
+    **{f"rv_yesterday_same_window_{h}h": ("Intraday volatility", FUT, f"the previous trading day's RV over (T, T + {h}h]") for h in (1, 2)},
+    **{f"rv_normal_{h}h": ("Intraday volatility", FUT, f"mean RV over (T, T + {h}h] on the previous 60 trading days (past days only)") for h in (1, 2)},
+    **{f"rv_back_normal_{w}m": ("Intraday volatility", FUT, f"mean of rv_last_{w}m on the previous 60 trading days (past days only)")
+       for w in (30, 60, 120)},
+    "minutes_since_open": ("Calendar", CAL, "the snapshot's clock time"),
+}
 TOKEN_SOURCES = [
     ("log_moneyness", "ln(strike / forward); forward from put–call parity on the option chain"),
     ("is_call, strike_price, expiry_date", "option chain contract keys"),

@@ -1,12 +1,12 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-04
+**Last updated:** 2026-11-06
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
-**Code:** commit `12b11a0`; the main neural runs record `git_dirty = false`. Commits are made through GitHub Desktop.
-**Tests:** 147 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
-**Next milestone:** ablations and attention maps; final presentation 2026-12-03 / 12-10
+**Code:** main runs on commit `12b11a0` (`git_dirty = false`); latest commit `e6d093f`, plus the uncommitted exploratory and HPC code (section I). Commits are made through GitHub Desktop.
+**Tests:** 172 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Next milestone:** exploratory experiments E1–E3 (Mac CPU + Explorer GPU); final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
 
@@ -14,13 +14,17 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Goal: results done by mid-November. Pick up here, in order:
 
-1. **Commit** in GitHub Desktop: the gradient-accumulation fix (`src/niftygex_eval/nn/trainer.py`, `tests/test_nn_trainer.py`) and this page. Then rerun window 24 on that clean commit (field drop is done).
-2. **Ablations (exploratory), in the background:**
-   - `run_neural.py --models attention_gru --window 24` (about 3 hours);
-   - `--window 72` (about 10 hours; one seed, or HPC);
-   - `--drop oi_change_since_previous_close_pct` (about 1.5 hours).
-   - after each: `report_results.py --tag <tag>` and `write_final_report.py`.
-3. **Final slides** (Dec 3/10) and a clean-commit reproducibility rerun.
+Exploratory experiments E1–E3 (`configs/eval_exploratory_v2.yaml`, registered before any run). Neural training on Explorer, the rest on the Mac (`docs/hpc.md`).
+
+1. **Commit** the exploratory and HPC code (section I) in GitHub Desktop.
+2. **Mac CPU, on that commit:** E3 data build (`compute_gex.py --grid intraday`, `compute_features.py --grid intraday`, `compute_intraday_rv.py`) plus the T2-unchanged check (`--verify` on both stages), E3 classical ladder (`run_intraday.py --horizon 1|2 --models persistence intraday_har har_gex lightgbm`), E1 residual LightGBM. Then commit.
+3. **Explorer:** `hpc/sync_code.sh`, `hpc/setup_env.sbatch`, `hpc/push_data.sh` + `hpc/verify_transfer.sbatch`, `hpc/make_jobs.py`, calibration wave → stop for go-ahead with updated estimates.
+4. **GPU waves** (`hpc/scheduler.sbatch`): references, E1, E3, E2, L = 72 last. Pull, merge seeds, E1–E3 tests and reports, this page.
+5. **Final report** regeneration after all exploratory results; final slides (Dec 3/10).
+
+## Known issues
+
+- **Apple-GPU memory on long Mac runs.** For attention models at L = 24, MPS driver memory grows about 1 GB per walk and is not returned while the process lives: the backend caches memory for each new tensor shape, and every walk adds new ones (ragged last training batch, ragged last prediction pass, accumulation pieces). Window 24 failed twice (4 and 6 Nov). Constant shapes keep it flat (4.2 GB over 26 walks); one process per walk (`scripts/run_isolated.py`) releases it and reproduces the 4 Nov main run exactly (walks 0–2, every prediction identical). Exploratory neural runs moved to Explorer; details in `docs/hpc.md`.
 
 ## Milestones (proposal slide 16)
 
@@ -103,19 +107,33 @@ Goal: results done by mid-November. Pick up here, in order:
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
 | E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
 | E3 | Sanity checks | ✅ | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
-| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded. The first ablation attempt (field drop, 4 Nov 09:29) failed after 64 min with an MPS out-of-memory error (16 GB unified memory; cached memory from earlier walks plus the largest late-period chains). Fix: the trainer releases cached GPU memory before each walk, and the prediction batch scales with the window (256 days at L = 12, unchanged; 128 at L = 24), so main-run numbers are unaffected. The field drop then completed (run `778509070ba82c1b`, commit `d239c0e`, clean; 80 min). Window 24 failed again after 22 min: the training step's backward pass peaks at about 12 GB at L = 24. Fix: batches are split into equal-memory pieces with gradient accumulation for windows longer than the default (the same batch-64 update; L = 12 is not split, so main-run numbers are unchanged). Measured on the largest walk at L = 24: driver memory 12.8 → 7.2 GB, flat across epochs, same speed. Test: `test_longer_windows_accumulate_gradients_to_the_same_update` |
+| E4 | Runs and report | ✅ | 4 Nov main run on commit `12b11a0` (`git_dirty = false`), 26 walks × 3 seeds: DeepSets 1.6 min (CPU, mean stop epoch 16.4), self-attention 9.0 min (12.4), attention + GRU 87.4 min (11.9) on MPS. Outputs: `outputs/results/neural_comparison.json`, `docs/findings_models.md`, figures `results_*.png`. The 3 Nov preview runs (`d701f1052a7113fc`, `a9d1fb305a16a259`, dirty) are superseded. Field-drop ablation: run `778509070ba82c1b` (commit `d239c0e`, clean, MPS). Window 24 on the Mac failed twice on GPU memory (see Known issues) and moved to Explorer (section I) |
 
 ### F. Research-question tests and write-up 🔄
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
 | F1 | RQ1 | ✅ | Beats every rung: no. Significant only vs persistence on IC; supporting DM losses favour it over LightGBM |
-| F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection). Field drop done (exploratory): without `oi_change_since_previous_close_pct`, attention + GRU IC 0.459 vs 0.447 (+0.012, 95% CI −0.009 to +0.034, 15 of 26 walks), QLIKE 0.204 vs 0.189 (worse); the concentrated-attention days go from 4 to 0. Window 24 to rerun |
+| F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection). Field drop done (exploratory): without `oi_change_since_previous_close_pct`, attention + GRU IC 0.459 vs 0.447 (+0.012, 95% CI −0.009 to +0.034, 15 of 26 walks), QLIKE 0.204 vs 0.189 (worse); the concentrated-attention days go from 4 to 0. Windows 24 and 72 run on Explorer with a fresh L = 12 reference (E2, section I) |
 | F3 | RQ3 | ✅ | Gain +0.003 (19 walks before) vs −0.014 (7 after); Welch p 0.74 |
 | F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
 | F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Layout checked on the development run (12 pages); regenerated from the main run on 4 Nov, with ablation and attention-map sections still pending. The clean-commit rerun is still to do |
+
+### I. Exploratory experiments E1–E3 🔄
+
+All labelled exploratory; registered in `configs/eval_exploratory_v2.yaml` (own hash) before any run. The main config and RQ1–RQ3 results are unchanged.
+
+| ID | Task | Status | Summary |
+|---|---|---|---|
+| I1 | Registration | 🔄 | `configs/eval_exploratory_v2.yaml`: E1 (9 tests, Holm), E2 (4 tests vs L = 12, Holm), E3 (2 horizons, Holm), secondary scores, device rule, E3 training (patience 3, at most 30 epochs). To commit |
+| I2 | E1 diagnostics (t2) | ⏳ | Code: `scripts/run_exploratory_e1.py`, `forecast/residual.py` (HAR residual wrapper), `nn/extra_models.py` (state-only MLP, hybrid). Residual LightGBM, combination and conditional IC on the Mac; neural parts on Explorer |
+| I3 | E2 more history (t2) | ⏳ | Code: multi-day loader and model (previous 5 / 10 days' 15:15 chains + L = 12), `scripts/run_exploratory_e2.py`; L = 24 and 72 via `run_neural.py`. All on Explorer, against an Explorer L = 12 reference |
+| I4 | E3 data layer | 🔄 | `configs/intraday.yaml` (separate from `data.yaml`, T2 hash unchanged), GEX and features stages `--grid intraday` (same 21-day logic) and `--verify` (T2 unchanged), `compute_intraday_rv.py`, strictly causal expiry choice (`causal_nearest_expiry`). Tests: `test_intraday_targets.py`, `test_intraday_features.py`. A trial RV build (uncommitted code) gave 23,712 rows, 23,031 with both horizons; 59 (1 h) and 83 (2 h) windows skipped for missing bars. Build on the commit still to do |
+| I5 | E3 ladder | ⏳ | `scripts/run_intraday.py`, `forecast/intraday.py` (past-only clock-time GEX normalization, intraday HAR, persistence), windowed token loader with causal-expiry masking; tests module `exploratory_e3.py` |
+| I6 | Explorer tooling | 🔄 | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Tested locally only; cluster calibration pending ❓ |
+| I7 | Reports | ⏳ | `docs/findings_exploratory_diagnostics.md`, `docs/findings_exploratory_history.md`, `docs/findings_intraday.md`, summary table, exploratory section in the final report |
 
 ### G. External tasks
 
@@ -248,6 +266,13 @@ From `outputs/reports/missing_data.md`:
 - `oi_change_since_previous_close_pct` stays as configured (not log-transformed). Changing it now would change the eval config hash and break comparability with the pre-registered runs; the `--drop` ablation measures its effect instead.
 - Added `docs/glossary.md`: every market, model, training, evaluation and statistics term used in the project.
 - The final report's conclusion now also states the loss result (lowest RMSE and QLIKE, Diebold–Mariano vs LightGBM), labeled as supporting evidence, not the IC rule.
+
+**2026-11-06**
+- Window 24 failed twice on Mac GPU memory; cause identified (see Known issues). All exploratory neural training moves to Explorer; the Mac keeps code, CPU work and reports. The pre-registered main results stay the Mac runs.
+- Exploratory experiments E1–E3 registered in `configs/eval_exploratory_v2.yaml` before any run, with a device rule: neural models compared with each other share a device and GPU type (fresh L = 12 references on Explorer); neural-vs-classical comparisons may mix devices.
+- E3 data layer kept out of `configs/data.yaml` (`configs/intraday.yaml`) so the T2 data hash and stages are unchanged; E3 expiry choice strictly causal at each snapshot; E3 uses T2's same-day-expiry rule, so the stored token history applies.
+- Confirmed: the T2 normalized-GEX current-day value is the 15:15 snapshot total (matches the GEX stage on all 1,722 days with GEX; inputs available by 15:15).
+- One cluster job per seed; seeds merged on the Mac exactly as a local three-seed run.
 
 ## Open questions
 

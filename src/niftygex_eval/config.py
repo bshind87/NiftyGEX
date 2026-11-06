@@ -20,3 +20,14 @@ def load_eval_config(profile: str | None = None) -> dict[str, Any]:
 
 def eval_hash(evaluation: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(evaluation, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def load_exploratory_config(profile: str | None = None) -> dict[str, Any]:
+    """The main evaluation config plus configs/eval_exploratory_v2.yaml (exploratory experiments E1-E3).
+
+    ``exploratory_hash`` covers the exploratory file only; runs also record the main ``eval_config_hash``.
+    """
+    cfg = load_eval_config(profile)
+    with (CONFIG_ROOT / "eval_exploratory_v2.yaml").open() as stream:
+        exploratory = yaml.safe_load(stream)
+    return {**cfg, "exploratory": exploratory, "exploratory_hash": eval_hash(exploratory)}

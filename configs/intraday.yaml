@@ -1,0 +1,22 @@
+# Exploratory E3 data layer: intraday realized-volatility target and features on a 15-minute snapshot grid.
+# Kept out of configs/data.yaml so the T2 data config hash (and every T2 stage) is unchanged. Intraday stages
+# record config_hash over data.yaml + regimes.yaml + this file, and check their T2 upstream manifests against
+# the T2 hash. Outputs: data/exposure/intraday/, data/features/intraday_aggregate/, data/features/intraday_rv/,
+# data/targets/intraday/.
+target: t_intraday
+snapshots: {first: '10:15', last: '13:15', step_minutes: 15}   # 13 per day; the 2-hour window ends by 15:15
+horizons_hours: [1, 2]
+# RV over a clock window (a, b]: sqrt(sum of squared 5-minute log returns of the front-month future, bars labeled
+# a .. b - 5 minutes), within one session and one contract. The first return of the day is the 09:20 bar's
+# (09:15 close to 09:20 close); the overnight gap never enters. A window needs every return present, else it is
+# skipped (never imputed) and counted.
+first_return_minute: '09:20'
+# Normal RV of a clock window: mean over the previous normal_days trading days (past days only, the snapshot day
+# excluded), with at least normal_min_days complete windows.
+normal_days: 60
+normal_min_days: 45
+# Backward windows for persistence and intraday HAR (truncated at first_return_minute).
+backward_windows_minutes: [30, 60, 120]
+# Total GEX on the intraday grid uses the T2 rule (data.yaml gex): 0 < days to expiry <= 21, so contracts expiring
+# on the snapshot day are excluded and the token history (built for T2) is the same expiry family.
+same_day_expiry_in_total_gex: false

@@ -22,7 +22,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _resolve_repo_path(value: str | Path) -> Path:
-    path = Path(value).expanduser()
+    path = Path(os.path.expandvars(str(value))).expanduser()
     return path if path.is_absolute() else (REPO_ROOT / path).resolve()
 
 
@@ -53,6 +53,12 @@ def load_config(profile: str | None = None) -> dict[str, Any]:
         "legacy_source_root": _resolve_repo_path(legacy_value) if legacy_value else None,
     }
     return {"profile": selected_profile, "paths": resolved_paths, "data": data, "regimes": regimes}
+
+
+def load_intraday_config(profile: str | None = None) -> dict[str, Any]:
+    """The data config plus configs/intraday.yaml (exploratory E3); its config_hash differs from the T2 hash."""
+    config = load_config(profile)
+    return {**config, "intraday": _read_yaml(CONFIG_ROOT / "intraday.yaml")}
 
 
 def config_hash(config: dict[str, Any]) -> str:

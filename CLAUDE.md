@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository owns auditable NIFTY data preparation and feature extraction (`src/niftygex/`, the data layer) and, separately, the evaluation layer (`src/niftygex_eval/`: walk-forward harness, results store, the forecasting ladder and neural models; configured by `configs/eval.yaml`). Never add modeling, dashboard, or evaluation-harness code to the data layer; the evaluation layer reads only feature/target Parquet and manifests and never writes under `data/`. Results go to `outputs/results/` with both the data and eval config hashes.
+This repository owns auditable NIFTY data preparation and feature extraction (`src/niftygex/`, the data layer) and, separately, the evaluation layer (`src/niftygex_eval/`: walk-forward harness, results store, the forecasting ladder and neural models; configured by `configs/eval.yaml`). Never add modeling, dashboard, or evaluation-harness code to the data layer; the evaluation layer reads only feature/target Parquet and manifests and never writes under `data/`. Results go to `outputs/results/` with both the data and eval config hashes. Exploratory experiments E1–E3 are registered in `configs/eval_exploratory_v2.yaml` (own hash) and `configs/intraday.yaml` (E3 data, outside the T2 hash); their neural training runs on the Explorer cluster (`docs/hpc.md`), where neural models compared with each other share one device and GPU type.
 
 ## Structure
 

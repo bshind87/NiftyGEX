@@ -1,0 +1,102 @@
+# Exploratory experiments E1-E3, registered here before any of their runs. Separate from configs/eval.yaml:
+# the pre-registered RQ1-RQ3 runs (eval config hash 552a3501001a) are not changed. Every run made under this file
+# records its own hash (exploratory_config_hash) and the label "exploratory". Harness, Forecaster interface,
+# metrics (IC primary; RMSE, QLIKE, R² vs HAR), paired per-walk tests, walks won, Diebold-Mariano and Holm are the
+# ones in src/niftygex_eval and configs/eval.yaml.
+
+label: exploratory
+alpha: 0.05
+bootstrap: {reps: 2000, seed: 7}      # conditional IC: resample walks (clusters) with replacement
+
+# Device rule: every neural model compared with another neural model runs on the same device and GPU type. All
+# exploratory neural training runs on the Explorer cluster (compute.gpu_type), including fresh L = 12 references;
+# neural-vs-classical comparisons may mix devices. The pre-registered main results stay the Mac runs.
+compute:
+  gpu_type: v100-sxm2          # one GPU type for every exploratory neural job (hpc/hpc.yaml)
+  device: cuda
+references:
+  main_eval_config_hash: 552a3501001a7610276f8828980db4e6546aa5726f403249ae00959b7feafa56
+  classical: forecast_comparison.json        # historical_mean, persistence, har, har_gex, lightgbm (Mac, CPU)
+  neural: neural_comparison.json             # deepsets, attention, attention_gru at L = 12 (Mac): main results
+  neural_hpc: neural_comparison_hpc.json     # the same three at L = 12 on the cluster: references for neural comparisons
+
+# E1. Diagnostics on the next-day target (t2, 15:15): same walks and rows as the main ladder.
+e1:
+  residual:
+    # r = y - HAR forecast. HAR is fitted inside each (inner) training window: in-sample residuals train the
+    # model, out-of-sample residuals are the test target. Reported: IC(r_hat, r) and IC of HAR + r_hat.
+    base: har
+    lightgbm_columns: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_sign_inferred, gex_expiries,
+                       includes_same_day_expiry, gex_concentration_hhi, call_wall_distance_pct, put_wall_distance_pct,
+                       max_pain_distance_pct, max_gex_strike_distance_pct, flip_naive_distance_pct, has_flip,
+                       has_inferred_flip, put_call_oi_ratio, oi_change_near_money_calls, oi_change_near_money_puts,
+                       participant_pro_net_index_calls, participant_pro_net_index_puts, participant_fii_net_index_calls,
+                       participant_fii_net_index_puts, participant_client_net_index_calls, participant_client_net_index_puts]
+    # Excluded as volatility state: atm_iv, atm_iv_next, skew_25d, term_slope, rv_*, vix_previous_close; calendar
+    # and level columns (days_to_expiry, time_to_expiry, days_to_next_expiry, is_expiry_day, nearest_expiry_weekday,
+    # lot_size, regime flag, futures_basis_bps, spot) are excluded too, so only chain, GEX and positioning remain.
+    neural_models: [deepsets, attention]
+    neural_state: none                        # tokens only: an empty state vector
+  state_mlp: {model: state_mlp}               # same trainer, loss and settings as attention + GRU; state vector only
+  hybrid: {model: hybrid_attention_gru}       # HAR forecast as a fixed input; output = HAR forecast + learned correction
+  combination: {members: [har, lightgbm, attention_gru], weights: equal}   # test predictions, no tuning
+  conditional:
+    models: [persistence, har, har_gex, lightgbm, deepsets, attention, attention_gru]
+    flip_distance_pct: 0.5                    # |flip_naive_distance_pct| <= 0.5 with has_flip
+    gex_tercile_column: gex_norm_naive        # tercile cutoffs from each walk's training window
+    sign_column: gex_sign_inferred            # +1 long gamma, -1 short gamma
+  # Primary tests (Holm within E1): per-walk IC, paired t with 95% CI ("vs zero" is a one-sample t).
+  tests:
+    - {name: residual_lightgbm_ic, a: residual_lightgbm, metric: residual_ic, vs: zero}
+    - {name: residual_deepsets_ic, a: residual_deepsets, metric: residual_ic, vs: zero}
+    - {name: residual_attention_ic, a: residual_attention, metric: residual_ic, vs: zero}
+    - {name: har_plus_residual_lightgbm_vs_har, a: residual_lightgbm, b: har, metric: ic}
+    - {name: har_plus_residual_deepsets_vs_har, a: residual_deepsets, b: har, metric: ic}
+    - {name: har_plus_residual_attention_vs_har, a: residual_attention, b: har, metric: ic}
+    - {name: hybrid_vs_har, a: hybrid_attention_gru, b: har, metric: ic}
+    - {name: hybrid_vs_attention_gru, a: hybrid_attention_gru, b: attention_gru_hpc, metric: ic}
+    - {name: combination_vs_har, a: combination, b: har, metric: ic}
+  secondary: [state_mlp vs deepsets_hpc, attention_hpc and attention_gru_hpc on IC, RMSE and QLIKE; combination vs each member;
+              conditional IC with bootstrap 95% CIs; Diebold-Mariano]
+  # Combination and conditional IC use the Mac main runs (descriptive, no neural-vs-neural test).
+
+# E2. Next-day target with more history (attention + GRU), compared with attention + GRU at L = 12.
+e2:
+  # L = 24 and L = 72 run under the main configuration on the cluster (tags window_24_hpc, window_72_hpc); every E2
+  # run is compared with attention + GRU at L = 12 on the cluster (references.neural_hpc). The E2 test script checks
+  # that the data hash and rows match.
+  windows: {window_24: neural_comparison_window_24_hpc.json, window_72: neural_comparison_window_72_hpc.json}
+  multiday:
+    model: multiday_attention_gru
+    days: [5, 10]              # 15:15 chain vectors of the previous K trading days (shared encoder, second GRU)
+    intraday_window: 12        # combined with the existing L = 12 intraday GRU before the head
+  tests:                       # Holm within E2, per-walk IC paired against attention_gru at L = 12 on the cluster
+    - {name: window_24_vs_l12, a: window_24}
+    - {name: window_72_vs_l12, a: window_72}
+    - {name: multiday_5_vs_l12, a: multiday_5}
+    - {name: multiday_10_vs_l12, a: multiday_10}
+
+# E3. Intraday target: next 1 and 2 hours of front-month futures RV (data layer: configs/intraday.yaml).
+e3:
+  horizons: [1, 2]
+  outcome: "log_rv_ratio_{h}h"            # log(RV over (T, T + h] / 60-day normal for the same clock window)
+  models: [persistence, intraday_har, har_gex, lightgbm, deepsets, attention, attention_gru]
+  persistence: "RV over (max(T - h, 09:20), T] / its 60-day clock-window normal"
+  intraday_har_columns: [rv_last_30m, rv_last_60m, rv_today_so_far, rv_yesterday, rv_yesterday_same_window_{h}h, rv_normal_{h}h]   # logs, plus time-of-day dummies
+  gex_columns: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_sign_inferred]
+  ridge_alphas: [0.1, 1.0, 10.0, 100.0]
+  # Normalized GEX at snapshot T: total GEX / mean |total GEX| at the same clock time over the previous 250 trading
+  # days (at least 60), past days only.
+  gex_normalization: {window: 250, min_periods: 60}
+  extra_state_columns: [minutes_since_open]
+  window: 12
+  training: {huber_delta: 1.0, lr: 0.001, weight_decay: 0.01, batch_size: 64, max_epochs: 30, patience: 3, refit: false,
+             seeds: [11, 12, 13]}
+  devices: {deepsets: cpu, attention: mps, attention_gru: mps}
+  # Primary test (Holm across the two horizons): attention + GRU vs the best classical rung (highest mean per-walk IC
+  # among persistence, intraday_har, har_gex, lightgbm), per-walk IC paired. The walk is the unit: snapshots within a
+  # day overlap and are not independent.
+  tests:
+    - {name: attention_gru_vs_best_classical_1h, horizon: 1}
+    - {name: attention_gru_vs_best_classical_2h, horizon: 2}
+  secondary: [RMSE, QLIKE, Diebold-Mariano, IC by time of day, pooled IC, before vs after the November 2024 marker]

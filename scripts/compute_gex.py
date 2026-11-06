@@ -1,6 +1,12 @@
-"""GEX stage: Greeks + spot + participant OI -> per-strike/per-expiry/per-target GEX and key levels on the snapshot grid."""
+"""GEX stage: Greeks + spot + participant OI -> per-strike/per-expiry/per-target GEX and key levels on the snapshot grid.
+
+  --grid intraday   exploratory E3: the same logic on the 15-minute intraday grid (configs/intraday.yaml), written to
+                    data/exposure/intraday/ with its own manifest (gex_intraday), plus each snapshot's causal nearest expiry
+  --verify          T2 only: recompute and compare with the current outputs; nothing is written
+"""
 from __future__ import annotations
 
+import argparse
 import math
 import re
 from datetime import date
@@ -11,11 +17,11 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from niftygex.config import load_config
+from niftygex.config import load_config, load_intraday_config
 from niftygex.exposure.gex import dealer_signs, strike_gex
 from niftygex.exposure.levels import call_wall, flip_level, max_gex_strike, max_pain, put_wall
-from niftygex.exposure.selection import TARGETS, total_gex_expiries
-from niftygex.exposure.snapshots import as_of, snapshot_grid
+from niftygex.exposure.selection import INTRADAY_TARGET, TARGETS, causal_nearest_expiry, total_gex_expiries
+from niftygex.exposure.snapshots import as_of, intraday_grid, snapshot_grid
 from niftygex.io.parquet import describe_files, require_upstream, staged_outputs, write_manifest, write_parquet, write_report
 from niftygex.validation.leakage import assert_available_by
 
@@ -108,23 +114,44 @@ def compute_levels(target_chain: pl.DataFrame, target_oi: pl.DataFrame, spots: d
     return pl.DataFrame(rows, schema=schema).sort(["snapshot_at", "target"])
 
 
+def verify_outputs(exposure_root: Path, outputs: dict[str, pl.DataFrame]) -> None:
+    """Compare recomputed T2 outputs with the files on disk; raise on any difference."""
+    for name, frame in outputs.items():
+        current = pl.read_parquet(exposure_root / name / "*.parquet").select(frame.columns).sort(frame.columns)
+        if not frame.sort(frame.columns).equals(current):
+            raise SystemExit(f"--verify: {name} differs from the current output")
+        print(f"--verify: {name} identical ({frame.height} rows)")
+
+
 def main() -> None:
-    config = load_config()
-    greeks_manifest = require_upstream(config, "greeks")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--grid", choices=["t2", "intraday"], default="t2")
+    parser.add_argument("--verify", action="store_true")
+    args = parser.parse_args()
+    if args.verify and args.grid != "t2":
+        raise SystemExit("--verify compares the T2 outputs only")
+    intraday = args.grid == "intraday"
+    t2_config = load_config()
+    config = load_intraday_config() if intraday else t2_config
+    greeks_manifest = require_upstream(t2_config, "greeks")
     data = config["data"]
     gex_cfg, rate = data["gex"], float(config["regimes"].get("risk_free_rate", {}).get("default", 0.0))
+    targets = (INTRADAY_TARGET,) if intraday else TARGETS
+    if intraday:
+        gex_cfg = {**gex_cfg, "same_day_expiry_in_total_gex": {INTRADAY_TARGET: bool(config["intraday"]["same_day_expiry_in_total_gex"])}}
     if gex_cfg["open_interest_unit"] != "index_units":
         raise SystemExit("Only open_interest_unit: index_units is implemented")
     scale, max_days = float(gex_cfg["scale_percent_move"]), int(gex_cfg["max_days_to_expiry"])
     staleness = int(data["snapshot"]["max_staleness_minutes"])
     grid_points = int(data["levels"]["flip_grid_points"])
     curated, greeks_root = config["paths"]["curated_root"], Path(config["paths"]["greeks_root"])
-    exposure_root = Path(config["paths"]["exposure_root"])
+    exposure_root = Path(config["paths"]["exposure_root"]) / ("intraday" if intraday else "")
 
     calendar = pl.read_parquet(curated / "calendar" / "trading_calendar.parquet").filter(pl.col("observed"))
     greek_files = sorted((greeks_root / "greeks").rglob("*.parquet"))
     expiries = {expiry_of(path): path for path in greek_files}
-    grid = snapshot_grid(calendar["trading_date"].to_list(), data["snapshot_grid"]).join(
+    grid = (intraday_grid(calendar["trading_date"].to_list(), config["intraday"]["snapshots"], INTRADAY_TARGET) if intraday
+            else snapshot_grid(calendar["trading_date"].to_list(), data["snapshot_grid"])).join(
         calendar.select(pl.col("trading_date").alias("trade_date"), "missing_spot", "truncated_session", "data_quality"), on="trade_date", how="left",
     )
     snaps = grid.select("trade_date", "snapshot_at").unique()
@@ -134,11 +161,14 @@ def main() -> None:
         "snapshot_at", pl.col("close").alias("spot"), pl.col("available_at").alias("spot_available_at"))
     signs = dealer_signs(pl.read_parquet(curated / "oi" / "participant_oi.parquet"), gex_cfg["inferred"]["dealer_client_type"])
 
-    chains, oi_chains, gcds = [], [], []
+    chains, oi_chains, gcds, first_seen = [], [], [], []
     for expiry, path in sorted(expiries.items()):
         relevant = snaps.filter((pl.col("trade_date") <= expiry) & ((pl.lit(expiry) - pl.col("trade_date")).dt.total_days() <= max_days))
         rows = pl.read_parquet(path, columns=GREEK_COLUMNS)
         gcds.append((expiry, oi_gcd(rows["open_interest"])))
+        if intraday:
+            first_seen.append(rows.group_by("trade_date").agg(pl.col("available_at").min().alias("first_available_at")).with_columns(
+                pl.lit(expiry).alias("expiry_date")))
         if not relevant.height:
             continue
         days = relevant["trade_date"].unique()
@@ -175,9 +205,9 @@ def main() -> None:
 
     expiry_totals = nullify(chain.group_by(["snapshot_at", "trade_date", "expiry_date"]).agg(*sums, *flags, pl.len().alias("legs"))).sort(["snapshot_at", "expiry_date"])
     target_chain = grid.select("snapshot_at", "target").join(chain, on="snapshot_at")
-    target_chain = pl.concat([target_chain.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in TARGETS])
+    target_chain = pl.concat([target_chain.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in targets])
     target_oi = grid.select("snapshot_at", "target", "trade_date").join(oi_chain, on=["snapshot_at", "trade_date"])
-    target_oi = pl.concat([target_oi.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in TARGETS])
+    target_oi = pl.concat([target_oi.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in targets])
     totals = nullify(target_chain.group_by(["snapshot_at", "target"]).agg(
         *sums, *flags, pl.col("expiry_date").n_unique().alias("expiries"), pl.len().alias("legs"),
         (pl.col("days_to_expiry") == 0).any().alias("includes_same_day_expiry"),
@@ -193,7 +223,12 @@ def main() -> None:
         compute_levels(target_chain.filter(pl.col("open_interest").is_not_null()), target_oi.filter(pl.col("open_interest").is_not_null()),
                        spots, sign_map, scale, grid_points, rate), on=["snapshot_at", "target"], how="left")
 
-    with staged_outputs(exposure_root, OWNED, config) as stage:
+    if args.verify:
+        verify_outputs(exposure_root, {"snapshots": grid, "gex_strikes": chain, "oi_chain": oi_chain, "gex_expiry": expiry_totals,
+                                       "gex_totals": totals, "levels": levels})
+        return
+    owned = OWNED + (["expiry_choice"] if intraday else [])
+    with staged_outputs(exposure_root, owned, config) as stage:
         write_parquet(grid, stage / "snapshots" / "snapshot_grid.parquet")
         for (year,), part in chain.with_columns(pl.col("trade_date").dt.year().alias("year")).partition_by(["year"], as_dict=True).items():
             write_parquet(part.drop("year"), stage / "gex_strikes" / f"year={year}.parquet")
@@ -202,13 +237,18 @@ def main() -> None:
         write_parquet(expiry_totals, stage / "gex_expiry" / "gex_expiry.parquet")
         write_parquet(totals, stage / "gex_totals" / "gex_totals.parquet")
         write_parquet(levels, stage / "levels" / "levels.parquet")
+        if intraday:
+            # E3 tokens: at snapshot T only an expiry with a Greek row available at or before T may be chosen.
+            write_parquet(causal_nearest_expiry(pl.concat(first_seen), grid.select("trade_date", "snapshot_at"), INTRADAY_TARGET, gex_cfg),
+                          stage / "expiry_choice" / "expiry_choice.parquet")
 
     write_reports(config, gex_cfg=gex_cfg, totals=totals, levels=levels, chain=chain, oi_chain=oi_chain, grid=grid, gcds=gcds,
-                  signs=signs, staleness=staleness, upstream=greeks_manifest["config_hash"])
+                  signs=signs, staleness=staleness, upstream=greeks_manifest["config_hash"], targets=targets,
+                  suffix="_intraday" if intraday else "")
     write_manifest(
-        config, STAGE,
+        config, STAGE + ("_intraday" if intraday else ""),
         inputs=describe_files(greek_files + [curated / "market" / "nifty_spot.parquet", curated / "oi" / "participant_oi.parquet"], config, checksums=False),
-        outputs=describe_files([p for name in OWNED for p in (exposure_root / name).rglob("*.parquet")], config, checksums=False),
+        outputs=describe_files([p for name in owned for p in (exposure_root / name).rglob("*.parquet")], config, checksums=False),
         counts={"snapshots": grid.height, "strike_rows": chain.height, "oi_rows": oi_chain.height},
         quality_flags={"spot_unavailable_snapshots": int((~totals["spot_available"]).sum()),
                        "inferred_unavailable_snapshots": int((~totals["inferred_available"]).sum())},
@@ -220,7 +260,7 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
     totals, levels, gex_cfg = ctx["totals"], ctx["levels"], ctx["gex_cfg"]
     per_target: dict[str, Any] = {}
     selection: dict[str, Any] = {}
-    for target in TARGETS:
+    for target in ctx["targets"]:
         part = totals.filter(pl.col("target") == target)
         with_chain = part.filter(pl.col("legs").is_not_null())
         available = part.filter(pl.col("gex_naive").is_not_null() & pl.col("gex_inferred").is_not_null())
@@ -251,7 +291,7 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
                if gex_cfg["same_day_expiry_in_total_gex"][target] else {}),
         }
     signs = ctx["signs"]
-    write_report(config, "gex_report", {
+    write_report(config, "gex_report" + ctx["suffix"], {
         "upstream_greeks_config_hash": ctx["upstream"],
         "formula": "GEX_leg = gamma (Black-76, per forward point) x open_interest (index units) x spot^2 x "
                    f"{gex_cfg['scale_percent_move']}; rupees; reported in crore",
@@ -291,7 +331,7 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
     })
 
     level_summary: dict[str, Any] = {}
-    for target in TARGETS:
+    for target in ctx["targets"]:
         part = levels.filter(pl.col("target") == target)
         has_spot = part.filter(pl.col("spot").is_not_null())
         entry: dict[str, Any] = {"snapshots": part.height, "with_spot_and_option_oi": has_spot.height}
@@ -314,7 +354,7 @@ def write_reports(config: dict[str, Any], **ctx: Any) -> None:
         entry["flip_inferred"]["inside_strike_band_share_when_call_put_signs_differ"] = (
             float(differing["flip_inferred"].is_not_null().mean()) if differing.height else None)
         level_summary[target] = entry
-    write_report(config, "levels_report", {
+    write_report(config, "levels_report" + ctx["suffix"], {
         "definitions": {
             "call_wall": "strike with the largest call OI strictly above spot, summed over the target's included expiries",
             "put_wall": "strike with the largest put OI strictly below spot, summed over included expiries",

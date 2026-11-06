@@ -66,3 +66,16 @@ def as_of(
     if max_staleness_minutes is not None:
         joined = joined.filter(pl.col("available_at") >= pl.col("snapshot_at") - pl.duration(minutes=max_staleness_minutes))
     return joined.sort("available_at").group_by(["snapshot_at", *keys], maintain_order=True).last()
+
+
+def intraday_grid(trading_dates: Iterable[date], snapshots: dict[str, Any], target: str) -> pl.DataFrame:
+    """Exploratory E3: one row per (snapshot_at, target) every ``step_minutes`` from ``first`` to ``last`` (inclusive)."""
+    first, last, step = parse_time(snapshots["first"]), parse_time(snapshots["last"]), int(snapshots["step_minutes"])
+    start, end = first.hour * 60 + first.minute, last.hour * 60 + last.minute
+    if (end - start) % step or end < start:
+        raise ValueError(f"intraday snapshots must step from {first} to {last} in {step}-minute increments")
+    rows = [(day, minute, target) for day in sorted(set(trading_dates)) for minute in range(start, end + 1, step)]
+    frame = pl.DataFrame(rows, schema={"trade_date": pl.Date, "minute": pl.Int64, "target": pl.String}, orient="row")
+    return frame.with_columns(
+        (pl.col("trade_date").cast(pl.Datetime("us")) + pl.duration(minutes=pl.col("minute"))).dt.replace_time_zone(TIMEZONE).alias("snapshot_at")
+    ).drop("minute").sort(["snapshot_at", "target"])

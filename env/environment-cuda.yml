@@ -1,0 +1,21 @@
+# Explorer HPC environment (exploratory neural runs on CUDA GPUs). Same pins as env/environment.yml, except PyTorch:
+# the CUDA build comes from the official PyTorch wheel index (RC's recommended route), installed by
+# hpc/setup_env.sbatch after this file is solved: torch==2.10.0 from https://download.pytorch.org/whl/cu126 by default.
+# The wheel bundles its CUDA runtime and needs only a recent NVIDIA driver; the setup job checks the driver and CUDA.
+# LightGBM, notebooks and the Word report are not needed on the cluster and are left out.
+name: niftygex
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11.11
+  - numpy=2.1.3
+  - polars=1.22.0
+  - pyarrow=18.1.0
+  - pyyaml=6.0.2
+  - scipy=1.14.1
+  - pytest=8.3.4
+  - scikit-learn=1.5.2
+  - statsmodels=0.14.4
+  - pandas=2.2.3
+  - matplotlib-base=3.9.2
+  - pip

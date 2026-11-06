@@ -46,5 +46,12 @@ class ResultsStore:
                                      "git_commit": spec.get("git_commit"), "git_dirty": spec.get("git_dirty")}) + "\n")
         return directory
 
+    def checkpoint_dir(self, spec: dict[str, Any]) -> Path:
+        """Per-walk checkpoints of the run that ``spec`` will become (same id, so a restart on the same commit resumes)."""
+        return self.root / "checkpoints" / self.run_id({**git_provenance(), **spec})
+
+    def clear_checkpoint(self, spec: dict[str, Any]) -> None:
+        shutil.rmtree(self.checkpoint_dir(spec), ignore_errors=True)
+
     def read_run(self, run_id: str) -> dict[str, Any]:
         return json.loads((self.root / "runs" / run_id / "run.json").read_text())

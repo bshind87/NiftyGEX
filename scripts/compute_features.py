@@ -1,14 +1,20 @@
-"""Features stage: exposure + curated sources -> one aggregate feature row per (snapshot_at, target)."""
+"""Features stage: exposure + curated sources -> one aggregate feature row per (snapshot_at, target).
+
+  --grid intraday   exploratory E3: the same features on the 15-minute intraday grid from data/exposure/intraday/,
+                    written to data/features/intraday_aggregate/ with its own manifest (features_intraday)
+  --verify          T2 only: recompute and compare with the current output; nothing is written
+"""
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 
 from niftygex.clean.session import session_settings
-from niftygex.config import load_config
-from niftygex.exposure.selection import TARGETS, total_gex_expiries
+from niftygex.config import load_config, load_intraday_config
+from niftygex.exposure.selection import INTRADAY_TARGET, TARGETS, total_gex_expiries
 from niftygex.features.aggregate import (
     KEY,
     gex_features,
@@ -25,16 +31,26 @@ from niftygex.io.regimes import lot_sizes_by_expiry, regime_marker_flags
 STAGE = "features"
 
 
-def select_for_targets(grid: pl.DataFrame, rows: pl.DataFrame, gex_cfg: dict[str, Any]) -> pl.DataFrame:
+def select_for_targets(grid: pl.DataFrame, rows: pl.DataFrame, gex_cfg: dict[str, Any], targets: tuple[str, ...] = TARGETS) -> pl.DataFrame:
     joined = grid.select(*KEY).join(rows, on="snapshot_at")
-    return pl.concat([joined.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in TARGETS])
+    return pl.concat([joined.filter((pl.col("target") == t) & total_gex_expiries(t, gex_cfg)) for t in targets])
 
 
 def main() -> None:
-    config = load_config()
-    gex_manifest = require_upstream(config, "gex")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--grid", choices=["t2", "intraday"], default="t2")
+    parser.add_argument("--verify", action="store_true")
+    args = parser.parse_args()
+    if args.verify and args.grid != "t2":
+        raise SystemExit("--verify compares the T2 output only")
+    intraday = args.grid == "intraday"
+    config = load_intraday_config() if intraday else load_config()
+    gex_manifest = require_upstream(config, "gex_intraday" if intraday else "gex")
     data, regimes = config["data"], config["regimes"]
-    exposure, curated = Path(config["paths"]["exposure_root"]), Path(config["paths"]["curated_root"])
+    exposure, curated = Path(config["paths"]["exposure_root"]) / ("intraday" if intraday else ""), Path(config["paths"]["curated_root"])
+    targets = (INTRADAY_TARGET,) if intraday else TARGETS
+    gex_cfg = {**data["gex"], "same_day_expiry_in_total_gex": {INTRADAY_TARGET: bool(config["intraday"]["same_day_expiry_in_total_gex"])}} \
+        if intraday else data["gex"]
     features_cfg = data["features"]
     settings = session_settings(data)
 
@@ -43,8 +59,8 @@ def main() -> None:
     oi_chain = pl.read_parquet(exposure / "oi_chain" / "*.parquet")
     totals = pl.read_parquet(exposure / "gex_totals" / "gex_totals.parquet")
     levels = pl.read_parquet(exposure / "levels" / "levels.parquet")
-    selected = select_for_targets(grid, strikes, data["gex"])
-    selected_oi = select_for_targets(grid, oi_chain, data["gex"])
+    selected = select_for_targets(grid, strikes, gex_cfg, targets)
+    selected_oi = select_for_targets(grid, oi_chain, gex_cfg, targets)
     forwards = selected.group_by([*KEY, "expiry_date"]).agg(pl.col("forward").median())
     eod = pl.read_parquet(curated / "oi" / "option_eod_oi_1525.parquet").rename({"available_date": "trade_date"})
 
@@ -87,8 +103,15 @@ def main() -> None:
     frame = frame.with_columns(pl.max_horizontal(source_columns).alias("feature_max_source_available_at")).sort(KEY)
 
     features_root = Path(config["paths"]["features_root"])
-    with staged_outputs(features_root, ["aggregate"], config) as stage:
-        write_parquet(frame, stage / "aggregate" / "aggregate.parquet")
+    owned = "intraday_aggregate" if intraday else "aggregate"
+    if args.verify:
+        current = pl.read_parquet(features_root / owned / "aggregate.parquet").select(frame.columns)
+        if not frame.equals(current):
+            raise SystemExit("--verify: the aggregate features differ from the current output")
+        print(f"--verify: aggregate features identical ({frame.height} rows)")
+        return
+    with staged_outputs(features_root, [owned], config) as stage:
+        write_parquet(frame, stage / owned / "aggregate.parquet")
 
     flags_and_keys = {*KEY, "trade_date", *source_columns, "feature_max_source_available_at", "data_quality",
                       "nearest_expiry", "spot_available", "oi_available", "inferred_available", "vix_available",
@@ -99,7 +122,7 @@ def main() -> None:
         pl.len().alias("rows"),
         *[pl.col(c).is_not_null().mean().alias(c) for c in feature_columns],
     ).sort("year")
-    write_report(config, "features_report", {
+    write_report(config, "features_report" + ("_intraday" if intraday else ""), {
         "upstream_gex_config_hash": gex_manifest["config_hash"],
         "rows": frame.height,
         "rows_per_target": dict(frame.group_by("target").len().sort("target").iter_rows()),
@@ -123,12 +146,12 @@ def main() -> None:
         },
     })
     write_manifest(
-        config, STAGE,
-        inputs=describe_files(sorted(p for p in exposure.rglob("*.parquet")), config, checksums=False),
-        outputs=describe_files([features_root / "aggregate" / "aggregate.parquet"], config),
+        config, STAGE + ("_intraday" if intraday else ""),
+        inputs=describe_files(sorted(p for p in exposure.rglob("*.parquet") if intraday or "intraday" not in p.parts), config, checksums=False),
+        outputs=describe_files([features_root / owned / "aggregate.parquet"], config),
         counts={"rows": frame.height, "feature_columns": len(feature_columns)},
         quality_flags={"rows_without_gex": int(frame["gex_total_naive"].is_null().sum())},
-        upstream={"gex": gex_manifest["config_hash"]},
+        upstream={"gex_intraday" if intraday else "gex": gex_manifest["config_hash"]},
     )
 
 

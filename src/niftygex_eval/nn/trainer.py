@@ -8,6 +8,7 @@ shuffled within the training rows only; splits stay in time order.
 from __future__ import annotations
 
 import gc
+import os
 from typing import Any, Callable
 
 import numpy as np
@@ -18,6 +19,18 @@ from niftygex_eval.forecast.interface import Forecaster
 from niftygex_eval.nn.dataset import NeuralInputs, Scaler
 
 
+DEVICE_ENV, GPU_TYPE_ENV = "NIFTYGEX_DEVICE", "NIFTYGEX_GPU_TYPE"
+
+
+def resolve_device(wanted: str) -> str:
+    """``NIFTYGEX_DEVICE`` (e.g. cuda on the HPC cluster) overrides the configured device for every neural model,
+    so models compared with each other share a device; otherwise mps falls back to cpu when unavailable."""
+    override = os.environ.get(DEVICE_ENV)
+    if override:
+        return override
+    return wanted if wanted != "mps" or torch.backends.mps.is_available() else "cpu"
+
+
 def default_factory(name: str, n_token_features: int, n_state_features: int, config: dict) -> torch.nn.Module:
     from niftygex_eval.nn.models import build_model
 
@@ -26,8 +39,11 @@ def default_factory(name: str, n_token_features: int, n_state_features: int, con
 
 class NeuralForecaster(Forecaster):
     def __init__(self, name: str, inputs: NeuralInputs, neural: dict[str, Any], *, device: str = "cpu",
-                 factory: Callable[..., torch.nn.Module] = default_factory) -> None:
+                 factory: Callable[..., torch.nn.Module] = default_factory, frame_state: list[str] | None = None) -> None:
+        """``frame_state``: extra state columns read from the frame at each call (values that change per walk,
+        such as the hybrid's HAR forecast), appended to the fixed state vector before scaling."""
         self.name, self.inputs, self.cfg, self.device, self.factory = name, inputs, neural, torch.device(device), factory
+        self.frame_state = list(frame_state or [])
         self.training = neural["training"]
         self.epochs_: list[int] = []
         self.models_: list[torch.nn.Module] = []
@@ -37,8 +53,14 @@ class NeuralForecaster(Forecaster):
     def _rows(self, frame: pl.DataFrame) -> np.ndarray:
         return np.array([self.inputs.row[t] for t in frame["snapshot_at"].to_list()], dtype=np.int64)
 
-    def _tensors(self, rows: np.ndarray) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        tokens, state = self.scaler_.transform(self.inputs.tokens[rows], self.inputs.mask[rows], self.inputs.state[rows])
+    def _state(self, frame: pl.DataFrame, rows: np.ndarray) -> np.ndarray:
+        if not self.frame_state:
+            return self.inputs.state[rows]
+        extra = frame.select([pl.col(c).cast(pl.Float64) for c in self.frame_state]).to_numpy().astype(np.float32)
+        return np.hstack([self.inputs.state[rows], extra])
+
+    def _tensors(self, rows: np.ndarray, frame: pl.DataFrame) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        tokens, state = self.scaler_.transform(self.inputs.tokens[rows], self.inputs.mask[rows], self._state(frame, rows))
         to = lambda a: torch.from_numpy(np.ascontiguousarray(a)).to(self.device)
         return to(tokens), to(self.inputs.mask[rows]), to(state)
 
@@ -47,6 +69,8 @@ class NeuralForecaster(Forecaster):
         gc.collect()
         if self.device.type == "mps":
             torch.mps.empty_cache()
+        elif self.device.type == "cuda":
+            torch.cuda.empty_cache()
 
     def _days_per_pass(self, window: int, multiple: int = 1) -> int:
         """Days per forward pass, sized so memory stays at the default window's level (``multiple`` batches at that window)."""
@@ -55,7 +79,7 @@ class NeuralForecaster(Forecaster):
 
     def _new_model(self, seed: int) -> torch.nn.Module:
         torch.manual_seed(seed)
-        n_features, n_state = self.inputs.tokens.shape[-1], self.inputs.state.shape[-1]
+        n_features, n_state = self.inputs.tokens.shape[-1], self.inputs.state.shape[-1] + len(self.frame_state)
         return self.factory(self.name, n_features, n_state, dict(self.cfg["model"])).to(self.device)
 
     def _batches(self, n: int, generator: np.random.Generator) -> list[np.ndarray]:
@@ -111,8 +135,8 @@ class NeuralForecaster(Forecaster):
     def tune(self, train: pl.DataFrame, valid: pl.DataFrame, outcome: str) -> None:
         self._release()
         train_rows, valid_rows = self._rows(train), self._rows(valid)
-        self.scaler_ = Scaler.fit(self.inputs.tokens[train_rows], self.inputs.mask[train_rows], self.inputs.state[train_rows])
-        data, valid_data = self._tensors(train_rows), self._tensors(valid_rows)
+        self.scaler_ = Scaler.fit(self.inputs.tokens[train_rows], self.inputs.mask[train_rows], self._state(train, train_rows))
+        data, valid_data = self._tensors(train_rows, train), self._tensors(valid_rows, valid)
         y, y_valid = train[outcome].to_numpy(), valid[outcome].to_numpy()
         self.epochs_, self.history_, self.models_ = [], [], []
         for seed in self.training["seeds"]:
@@ -127,8 +151,8 @@ class NeuralForecaster(Forecaster):
             return self  # keep the early-stopped models and the scaler fitted on their training rows
         self._release()
         rows = self._rows(train)
-        self.scaler_ = Scaler.fit(self.inputs.tokens[rows], self.inputs.mask[rows], self.inputs.state[rows])
-        data, y = self._tensors(rows), train[outcome].to_numpy()
+        self.scaler_ = Scaler.fit(self.inputs.tokens[rows], self.inputs.mask[rows], self._state(train, rows))
+        data, y = self._tensors(rows, train), train[outcome].to_numpy()
         epochs = self.epochs_ or [int(self.training["max_epochs"])] * len(self.training["seeds"])
         self.models_ = [self._train(data, y, int(seed), epoch)[0] for seed, epoch in zip(self.training["seeds"], epochs)]
         return self
@@ -146,7 +170,7 @@ class NeuralForecaster(Forecaster):
         Empty for models without attention weights (DeepSets).
         """
         rows = self._rows(frame)
-        tokens, mask, state = self._tensors(rows)
+        tokens, mask, state = self._tensors(rows, frame)
         stacked = []
         for model in self.models_:
             model.eval()
@@ -165,5 +189,5 @@ class NeuralForecaster(Forecaster):
         return pl.DataFrame(out)
 
     def predict(self, frame: pl.DataFrame) -> np.ndarray:
-        data = self._tensors(self._rows(frame))
+        data = self._tensors(self._rows(frame), frame)
         return np.mean([self._predict(model, data) for model in self.models_], axis=0)
