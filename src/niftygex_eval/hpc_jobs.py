@@ -77,6 +77,8 @@ unset PYTHONPATH PYTHONHOME
 export PYTHONNOUSERSITE=1
 conda activate {settings['env_dir']}
 [ "$(command -v python)" = "{settings['env_dir']}/bin/python" ] || {{ echo "python is $(command -v python), not {settings['env_dir']}" >&2; exit 2; }}
+# The anaconda module puts its older libstdc++ on LD_LIBRARY_PATH; the env's own libraries must come first.
+export LD_LIBRARY_PATH="{settings['env_dir']}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}"
 cd {code}
 end=$(scontrol show job "$SLURM_JOB_ID" | grep -oP 'EndTime=\\K\\S+')
 export NIFTYGEX_PROFILE=hpc NIFTYGEX_DEVICE=cuda NIFTYGEX_GPU_TYPE={gpu_type} PYTHONPATH=src

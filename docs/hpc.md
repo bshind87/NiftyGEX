@@ -43,8 +43,9 @@ Scratch is purged each semester: `hpc/pull_results.sh` copies results back to th
 
 1. **Commit and push** on the Mac (GitHub Desktop); note the commit id.
 2. **Code**: `bash hpc/remote.sh sync <commit>` (clone or update, refuse a dirty tree, create the private scratch layout).
-3. **Environment**: `bash hpc/remote.sh setup` (gpu-short, v100-sxm2: builds the env, prints the driver, checks
-   `torch.cuda`, runs the nn tests). If torch does not see the GPU, resubmit with an older wheel:
+3. **Environment**: `bash hpc/remote.sh setup` builds the env on a CPU node (`short`; an install on a GPU node leaves
+   the GPU idle and RC cancels idle GPU jobs) and runs the CPU tests, then `hpc/cuda_check.sbatch` checks the driver,
+   `torch.cuda` and a matmul on a v100-sxm2 (gpu-short). If torch does not see the GPU, resubmit with an older wheel:
    `ssh explorer 'cd ~/niftygex && sbatch --export=ALL,TORCH_INDEX=https://download.pytorch.org/whl/cu124 hpc/setup_env.sbatch'`.
 4. **Data**: `bash hpc/push_data.sh` (rsync, then `chmod -R go-rwx`), then `bash hpc/remote.sh verify` (every file's size,
    rows and SHA-256 against the Mac manifests; `outputs/reports/transfer_check.json`).

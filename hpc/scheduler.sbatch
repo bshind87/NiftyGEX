@@ -20,5 +20,8 @@ for _ in 1 2 3 4 5; do if [ -n "${CONDA_PREFIX:-}" ]; then conda deactivate; fi;
 unset PYTHONPATH PYTHONHOME
 export PYTHONNOUSERSITE=1
 conda activate /home/$USER/envs/niftygex
+[ "$(command -v python)" = "/home/$USER/envs/niftygex/bin/python" ] || { echo "python is $(command -v python), not the niftygex env" >&2; exit 2; }
+# The anaconda module puts its older libstdc++ on LD_LIBRARY_PATH; the env's own libraries must come first.
+export LD_LIBRARY_PATH="/home/$USER/envs/niftygex/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 cd /home/$USER/niftygex
 NIFTYGEX_PROFILE=hpc PYTHONPATH=src python hpc/scheduler.py --loop --interval 300 --waves ${WAVES:-references e1 e3 e2 e2_l72}

@@ -26,6 +26,8 @@ Exploratory experiments E1–E3 (`configs/eval_exploratory_v2.yaml`, registered 
 
 - **Apple-GPU memory on long Mac runs.** For attention models at L = 24, MPS driver memory grows about 1 GB per walk and is not returned while the process lives: the backend caches memory for each new tensor shape, and every walk adds new ones (ragged last training batch, ragged last prediction pass, accumulation pieces). Window 24 failed twice (4 and 6 Nov). Constant shapes keep it flat (4.2 GB over 26 walks); one process per walk (`scripts/run_isolated.py`) releases it and reproduces the 4 Nov main run exactly (walks 0–2, every prediction identical). Exploratory neural runs moved to Explorer; details in `docs/hpc.md`.
 
+- **Explorer setup (6 Nov).** (1) An environment build on a GPU node was cancelled by the system after 69 min (job 11680222, `CANCELLED by 0`; the GPU sat idle, which RC terminates): the build now runs on the CPU `short` partition, with a separate 15-minute CUDA check on gpu-short. (2) The `anaconda3/2024.06` module puts an older `libstdc++` on `LD_LIBRARY_PATH`, so scipy failed to import (`GLIBCXX_3.4.30 not found`, job 11681913): every script now puts the env's `lib/` first. (3) rsync through the login node is cut off within a minute: copies go through RC's transfer node (`explorer-xfer`).
+
 ## Milestones (proposal slide 16)
 
 | Date | Milestone | Status |

@@ -52,6 +52,7 @@ def test_job_scripts_fix_the_gpu_type_keep_data_private_and_stop_before_the_dead
     # Clean environment: inherited conda envs are deactivated and the job's python must be the niftygex env.
     assert "conda deactivate" in text and "unset PYTHONPATH PYTHONHOME" in text and "PYTHONNOUSERSITE=1" in text
     assert 'conda activate /home/u/envs/niftygex' in text and '"/home/u/envs/niftygex/bin/python" ]' in text
+    assert 'export LD_LIBRARY_PATH="/home/u/envs/niftygex/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' in text   # env libstdc++ first
 
 
 def test_short_jobs_go_to_gpu_short_and_long_jobs_to_gpu_unless_courses_gpu_starts_sooner() -> None:
