@@ -193,3 +193,11 @@ def test_seed_and_device_settings(monkeypatch) -> None:
     assert resolve_device("cpu") == "cpu"
     assert json.loads(json.dumps(spec_extras())) == {"gpu_type": "v100-sxm2"}
     assert Path(REPO_ROOT / "configs" / "paths.hpc.yaml").exists()
+
+
+def test_results_store_follows_the_profile_outputs_root(monkeypatch) -> None:
+    from niftygex_eval.config import load_eval_config
+
+    assert load_eval_config()["results_root"] == REPO_ROOT / "outputs" / "results"        # unchanged on the Mac
+    monkeypatch.setenv("USER", "tester")
+    assert str(load_eval_config("hpc")["results_root"]) == "/scratch/tester/niftygex/outputs/results"

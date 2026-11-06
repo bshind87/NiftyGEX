@@ -3,18 +3,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
 import yaml
 
-from niftygex.config import CONFIG_ROOT, REPO_ROOT, load_config
+from niftygex.config import CONFIG_ROOT, load_config
 
 
 def load_eval_config(profile: str | None = None) -> dict[str, Any]:
     data_config = load_config(profile)
     with (CONFIG_ROOT / "eval.yaml").open() as stream:
         evaluation = yaml.safe_load(stream)
-    store = REPO_ROOT / evaluation["results_store"]
+    # The store lives under the profile's outputs root (outputs/results locally, scratch on the cluster).
+    store = Path(data_config["paths"]["outputs_root"]) / Path(evaluation["results_store"]).relative_to("outputs")
     return {"data_config": data_config, "eval": evaluation, "results_root": store}
 
 

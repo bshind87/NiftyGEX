@@ -2,7 +2,7 @@
 # Build the niftygex conda environment on a CPU node, then run the CPU tests (docs/hpc.md, step 3).
 #   bash hpc/remote.sh setup      (submits this, then hpc/cuda_check.sbatch on gpu-short once it succeeds)
 # Not on a GPU node: an install leaves the GPU idle, and RC cancels idle GPU jobs (11680222 was cancelled after 69 min).
-# Set REINSTALL_TORCH=1 to repair an interrupted torch install.
+# Set REINSTALL_TORCH=1 to repair an interrupted torch install, CONDA_CLEAN=1 to free home quota afterwards.
 #SBATCH --job-name=ngx_setup_env
 #SBATCH --partition=short
 #SBATCH --nodes=1
@@ -35,7 +35,8 @@ conda activate "$ENV_DIR"
 # The anaconda module puts its older libstdc++ on LD_LIBRARY_PATH; the env's own libraries must come first.
 export LD_LIBRARY_PATH="$ENV_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 pip install ${REINSTALL_TORCH:+--force-reinstall} "torch==$TORCH_VERSION" --index-url "$TORCH_INDEX"
-conda clean --all --yes
+# conda clean scans the package caches on /home and took over 30 min (job 11682258); run it only when asked.
+if [ -n "${CONDA_CLEAN:-}" ]; then conda clean --all --yes; fi
 python -c "import torch, polars, numpy, yaml, scipy, sklearn; print('torch', torch.__version__, 'CUDA build', torch.version.cuda)"
 cd "$CODE_DIR" && NIFTYGEX_PROFILE=hpc PYTHONPATH=src python -m pytest -q -p no:cacheprovider tests/test_nn_models.py tests/test_nn_trainer.py \
     tests/test_exploratory.py tests/test_hpc.py tests/test_intraday_targets.py tests/test_intraday_features.py
