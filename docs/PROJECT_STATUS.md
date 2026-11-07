@@ -1,6 +1,6 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-06
+**Last updated:** 2026-11-06 (E1 complete)
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
@@ -130,11 +130,11 @@ All labelled exploratory; registered in `configs/eval_exploratory_v2.yaml` (own 
 | ID | Task | Status | Summary |
 |---|---|---|---|
 | I1 | Registration | 🔄 | `configs/eval_exploratory_v2.yaml`: E1 (9 tests, Holm), E2 (4 tests vs L = 12, Holm), E3 (2 horizons, Holm), secondary scores, device rule, E3 training (patience 3, at most 30 epochs). To commit |
-| I2 | E1 diagnostics (t2) | 🔄 | Mac (commit `88e4bb3`, clean): residual LightGBM run `b825612bdd2a35d3`; combination and conditional IC computed (`outputs/results/exploratory_e1.json`, family incomplete until the Explorer neural parts). Neural parts on Explorer ⏳ |
+| I2 | E1 diagnostics (t2) | ✅ | `docs/findings_exploratory_diagnostics.md`. All 9 registered tests reject after Holm. Residual models (no volatility state) predict HAR's out-of-sample residual with IC 0.204–0.218; HAR + correction +0.030 to +0.046 IC; hybrid attention + GRU 0.492 (+0.047 over attention + GRU on V100); equal-weight combination 0.502 (+0.068 over HAR). State-only MLP 0.459 ≈ attention + GRU 0.445 (not significant): tokens add little inside the neural trainer. Leakage check: 0 of 1,800 rows use a source after 15:15. Runs: residual LightGBM `b825612bdd2a35d3` (Mac); merged V100 runs residual attention `b0e1c7e665609637`, residual DeepSets `dbb47542fe9b923b`, state MLP `fcc7b1437ca09ea6`, hybrid `1bff9652940fcd3c`; V100 L = 12 references DeepSets `42cf8f01b8b2ffe9`, attention `477e52e15478c1bd`, attention + GRU `a8164fd180864bf4` (IC 0.437 / 0.409 / 0.445 vs Mac 0.437 / 0.418 / 0.447). Every cluster run: commit `60b6e18`, `git_dirty = false`, Tesla V100-SXM2-32GB |
 | I3 | E2 more history (t2) | ⏳ | Code: multi-day loader and model (previous 5 / 10 days' 15:15 chains + L = 12), `scripts/run_exploratory_e2.py`; L = 24 and 72 via `run_neural.py`. All on Explorer, against an Explorer L = 12 reference |
 | I4 | E3 data layer | ✅ | `configs/intraday.yaml` (separate from `data.yaml`, T2 hash unchanged), GEX and features stages `--grid intraday` (same 21-day logic) and `--verify` (T2 unchanged), `compute_intraday_rv.py`, strictly causal expiry choice (`causal_nearest_expiry`). Tests: `test_intraday_targets.py`, `test_intraday_features.py`. Built on `88e4bb3` (clean; intraday config hash `e3988a993d5b`): 23,712 rows, 23,031 with both horizons; 59 (1 h) and 83 (2 h) windows skipped for missing bars, 585 rows before the 60-day normal exists. T2 `--verify`: GEX outputs identical, features identical up to float rounding |
 | I5 | E3 ladder | 🔄 | Classical rungs on the Mac (`88e4bb3`, clean, 25 walks, 3.4 min per horizon). Mean per-walk IC, 1 h: persistence 0.541, intraday HAR 0.580, HAR + GEX 0.577, LightGBM 0.582; 2 h: 0.587, 0.600, 0.597, 0.597. Runs 1 h `fbddd4a3d99cc290`, `5865165aa21963bf`, `30a408391e241523`, `31e0b02db959a7ad`; 2 h `9bf82f720381571f`, `074c380aaf420d53`, `d7a44c8c43e361a4`, `c48071b7eaa11b18`. Neural rungs on Explorer ⏳ |
-| I6 | Explorer tooling | 🔄 | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Explorer: code synced (deploy key), environment build running (V100-SXM2, driver 545.23.08), data push in progress; calibration pending ❓ |
+| I6 | Explorer tooling | ✅ | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Explorer: environment ready (torch 2.10.0+cu126, V100-SXM2, driver 545.23.08), transfer check 4,155 files 0 problems, calibration done (t2 L = 12: 0.4–0.8 min per walk, 1.0 GB GPU; E3 1 h: 0.9–1.5 min per walk, 3.7 GB), production waves from commit `60b6e18` (scheduler job 11685043; gpu-short + courses-gpu, gpu disabled). E1 and references done |
 | I7 | Reports | ⏳ | `docs/findings_exploratory_diagnostics.md`, `docs/findings_exploratory_history.md`, `docs/findings_intraday.md`, summary table, exploratory section in the final report |
 
 ### G. External tasks
@@ -159,6 +159,8 @@ Moved to `archive/` (code, tests, configs, docs) and `outputs/archive/` (summari
 | H5 | T1 pinning and T3 drift targets | Removed from the data layer on 2026-10-14: `archive/src/niftygex/`, `archive/docs/schema_t1_t3.md`, last outputs in `outputs/archive/data_targets/` |
 
 ## Key findings so far
+
+**Exploratory E1** (`docs/findings_exploratory_diagnostics.md`; Holm within E1, all 9 tests reject): the chain and positioning features carry information beyond HAR (residual IC ≈ 0.21; HAR + correction up to +0.046 IC); the hybrid HAR + attention + GRU correction (0.492) and the equal-weight combination (0.502) are the best next-day models; inside the neural trainer the tokens add little (state-only MLP 0.459 vs attention + GRU 0.445).
 
 **Neural ladder and pre-registered tests** (`docs/findings_models.md`; 26 walks, same rows as the classical ladder):
 
