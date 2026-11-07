@@ -75,7 +75,7 @@ def figure_pattern(pattern: dict, directory: Path) -> Path:
         ax.plot(x, raw - raw.mean(), "-o", color=SERIES[0], markersize=4, label="log forward RV (centred)")
         ax.plot(x, [r["target_mean"] for r in rows], "-o", color=SERIES[1], markersize=4, label="target: log(RV / clock-window normal)")
         ax.axhline(0, color=TEXT_2, linewidth=0.8)
-        ax.set_title(f"{h}: time of day explains {block['raw_log_rv_time_of_day_share']:.1%} of raw log RV variance, "
+        ax.set_title(f"{h}: time of day explains {block['raw_log_rv_time_of_day_share']:.1%} of raw log RV variance,\n"
                      f"{block['target_time_of_day_share']:.2%} of the target's", fontsize=9)
         ax.tick_params(axis="x", rotation=60, labelsize=7.5)
     np.atleast_1d(axes)[0].set_ylabel("mean by snapshot time")
@@ -103,6 +103,11 @@ def summary_lines(results: dict, holm: dict | None, pattern: dict) -> list[str]:
         scores, best = block["scores"], block["best_classical"]
         p = block["primary"]
         member = next((m for m in (holm or {}).get("members", []) if m["test"] == p["test"]), {})
+        if member.get("reject_holm"):
+            verdict = "significantly higher than" if p["mean_diff"] > 0 else "significantly lower than"
+        else:
+            verdict = "not significantly different from"
+        lines.append(f"{h}: attention + GRU is {verdict} the best classical rung after Holm across horizons.")
         lines.append(f"{h}: attention + GRU IC {scores['attention_gru']['ic_mean_per_walk']:.3f} vs the best classical rung, "
                      f"{LABELS[best]} {scores[best]['ic_mean_per_walk']:.3f} ({p.get('mean_diff', float('nan')):+.3f}, 95% CI {interval(p.get('ci95'))}, "
                      f"Holm p {f(member.get('p_holm'), '.2g')}, walks won {p.get('a_wins')}/{p.get('walks')}); persistence {scores['persistence']['ic_mean_per_walk']:.3f}.")
@@ -155,6 +160,11 @@ def main() -> None:
             lines += ["", "Before vs after the November 2024 marker (attention + GRU, pooled): "
                       + "; ".join(f"{k}: IC {f(v.get('ic'))} on {v.get('n')} rows" for k, v in sorted(periods.items(), key=lambda kv: kv[0] != "before")), ""]
         lines.append("")
+    lines += ["## Design note", "",
+              "As registered, the neural rungs' state vector is the T2 volatility state recomputed at each snapshot plus time of day; "
+              "it does not include the backward-window RVs (last 30 and 60 minutes, yesterday's same window, the clock-window normal) that the "
+              "intraday HAR uses. Part of the gap to the classical rungs may therefore come from inputs rather than architecture; a hybrid with "
+              "the intraday HAR forecast as an input (as in E1) would separate the two and is not registered.", ""]
     lines += ["## Sanity check: the time-of-day pattern", "", "| Horizon | Time of day: share of raw log RV variance | Share of target variance |", "|---|---|---|"]
     for h, block in pattern.items():
         lines.append(f"| {h} | {block['raw_log_rv_time_of_day_share']:.1%} | {block['target_time_of_day_share']:.2%} |")
