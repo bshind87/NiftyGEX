@@ -1,12 +1,12 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-06 (E1–E3 complete, final report regenerated)
+**Last updated:** 2026-11-10 (clean-commit rerun reproduces the main pipeline exactly; final slides drafted)
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** main runs on commit `12b11a0` (`git_dirty = false`); exploratory Mac runs on `88e4bb3` (clean). Commits are made through GitHub Desktop.
-**Tests:** 177 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
-**Next milestone:** exploratory experiments E1–E3 (Mac CPU + Explorer GPU); final presentation 2026-12-03 / 12-10
+**Tests:** 180 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Next milestone:** final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
 
@@ -16,8 +16,10 @@ Goal: results done by mid-November. Pick up here, in order:
 
 Exploratory E1–E3 are complete (`docs/findings_exploratory_summary.md`) and the final Word report is regenerated with them (section 16, separate from RQ1–RQ3).
 
-1. **Final slides** (Dec 3/10): main results (RQ1–RQ3), then the exploratory summary table.
-2. **Clean-commit reproducibility rerun** of the main pipeline (data stages, classical ladder, Mac neural main run on `12b11a0`'s code path).
+The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_reproducibility.md`), and the final deck is drafted (F8).
+
+1. **Final slides:** review `docs/deliverables/NiftyGEX_Final_Presentation.pptx`. Set the exact presentation date, and choose whether to hide proposal slides 6, 13 and 15 for time (25 visible slides ≈ 17 min). The builder is still in the session scratchpad; it can move to `scripts/` (needs python-pptx in the env).
+2. Make the validation report's forward-quality table column order deterministic (it changed between runs; values identical).
 3. Optional, not registered: an intraday hybrid (intraday HAR forecast as an input) to separate inputs from architecture in E3.
 
 ## Known issues
@@ -119,7 +121,8 @@ Exploratory E1–E3 are complete (`docs/findings_exploratory_summary.md`) and th
 | F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
-| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Regenerated 6 Nov with the attention maps, the Mac field-drop ablation and the exploratory E1–E3 section (the cluster's window runs are reported there, against a V100 reference). The clean-commit rerun is still to do |
+| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Regenerated 6 Nov with the attention maps, the Mac field-drop ablation and the exploratory E1–E3 section (the cluster's window runs are reported there, against a V100 reference). Clean-commit rerun done 10 Nov (`scripts/report_reproducibility.py` → `outputs/reports/reproducibility.json`, `docs/findings_reproducibility.md`): from `d16f820` into the `repro` profile, 2,367 data files identical and 1 within float rounding (2.2e-16), all manifest counts and flags equal, all 8 main runs' predictions identical, RQ tests identical; every rerun run records `git_dirty = false` |
+| F8 | Final presentation | 🔄 | `docs/deliverables/NiftyGEX_Final_Presentation.pptx` (gitignored): deck v10 extended with 10 results slides (scoreboard, RQ1–RQ3, attention maps, E1–E3, takeaways, deliverables) and 4 hidden backups; every number read from `outputs/results` and `outputs/reports`. Study guide for the Q&A: `docs/deliverables/NiftyGEX_Study_Guide.pdf`. Awaiting review |
 
 ### I. Exploratory experiments E1–E3 ✅
 
@@ -287,6 +290,10 @@ From `outputs/reports/missing_data.md`:
 - All 51 exploratory GPU jobs finished on Explorer from commit `60b6e18` (clean, V100-SXM2) in about 3.5 hours on gpu-short and courses-gpu; no production job was SIGKILLed. Seeds merged on the Mac exactly as a local three-seed run.
 - Results: E1 all 9 tests reject (the chain helps as a correction to HAR; combination best); E2 none reject; E3 attention + GRU significantly worse than the best classical rung at both horizons.
 - The final report's ablation table keeps only Mac-device ablations; the V100 window runs are reported in the exploratory section against the V100 reference (device rule).
+
+**2026-11-10**
+- Clean-commit reproducibility rerun of the main pipeline from `d16f820` into a separate `repro` path profile (gitignored): every stage, the classical ladder and the Mac neural main run reproduce the originals exactly (`docs/findings_reproducibility.md`). The validation manifest records `git_dirty = true` by construction, because that stage writes the tracked `docs/validation_report.md` before its manifest; the rerun's copy was compared and the committed file restored.
+- Final deck built by extending deck v10 rather than starting fresh, so the talk keeps the proposal's look.
 
 ## Open questions
 
