@@ -9,7 +9,6 @@ writes outputs/reports/NiftyGEX_Final_Report_dev.docx instead.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from niftygex.config import REPO_ROOT
@@ -161,7 +160,9 @@ def main() -> None:
     figure(doc, ctx.figures / f"results_regime{suffix}.png", ctx.caption("Per-walk IC gain over tuned LightGBM; orange walks follow the rule change."))
 
     section = n + 6
-    ablations = sorted(p for p in root.glob("neural_comparison_*.json") if not p.name.endswith("_dev.json")) if tag == "main" else []
+    # Mac ablations only (same device as the main run); the cluster's window runs are in the exploratory section (device rule).
+    ablations = sorted(p for p in root.glob("neural_comparison_*.json")
+                       if not p.name.endswith("_dev.json") and "hpc" not in p.name and "dev_" not in p.name) if tag == "main" else []
     doc.add_heading(f"{section}. Ablations (exploratory)", level=1)
     if ablations:
         base = model_rows.get("attention_gru", {}).get("ic_mean_per_walk")
@@ -172,6 +173,8 @@ def main() -> None:
                 rows.append([run["tag"], LABELS[r["model"]], fmt(r["ic_mean_per_walk"]),
                              fmt(r["ic_mean_per_walk"] - base, "+.3f") if base is not None and r["model"] == "attention_gru" else "—"])
         table(doc, ["Variant", "Model", "Mean IC", "vs main attention + GRU"], rows, [2.2, 1.6, 1.0, 1.7], size=9)
+        doc.add_paragraph("History-length ablations (L = 24, L = 72) ran on Explorer V100s against a V100 reference and are reported with the "
+                          "exploratory experiments (E2) in the next sections.")
     else:
         doc.add_paragraph("Pending: window lengths 24 and 72 and the OI-change field drop (scripts/run_neural.py --window / --drop).")
 
@@ -188,17 +191,42 @@ def main() -> None:
         doc.add_paragraph("Pending: pooling attention weights are stored per test day (run_neural.py --save-attention); "
                           "scripts/report_attention.py draws the maps.")
 
-    data_gaps_section(doc, ctx, section + 2)
+    summary_path = reports / "exploratory_summary.json"
+    doc.add_heading(f"{section + 2}. Exploratory experiments E1–E3 (not pre-registered)", level=1)
+    if summary_path.exists() and tag == "main":
+        exploratory = load(summary_path)
+        doc.add_paragraph("After the pre-registered tests, three exploratory experiments were registered in configs/eval_exploratory_v2.yaml before any "
+                          "of their runs, with their own config hash and Holm families: E1 diagnostics on the next-day target (HAR residuals, a "
+                          "state-only control, a hybrid HAR + attention + GRU correction, a forecast combination, conditional IC), E2 more history "
+                          "for the next-day model (longer intraday windows, previous days' chains), and E3 a new target, the next one and two hours "
+                          "of realized volatility. Neural models compared with each other ran on the same GPU type (Explorer V100s, three seeds each); "
+                          "neural-vs-classical comparisons may mix devices. None of this changes the RQ1–RQ3 answers above.")
+        table(doc, ["Exp.", "Question", "Evidence", "Answer"],
+              [[r["experiment"], r["question"], r["evidence"], r["verdict"]] for r in exploratory["rows"]], [0.5, 2.0, 2.9, 1.1], size=8)
+        doc.add_paragraph(exploratory["overall"])
+        for name, caption in (("e1_residual_ic", "E1: IC of the predicted vs actual HAR residual, per walk, for three residual models."),
+                              ("e2_history_ic_gain", "E2: per-walk IC gain over attention + GRU at L = 12 for longer windows and previous days' chains."),
+                              ("e3_ic_by_time_of_day", "E3: IC within each snapshot time across test days, 1 and 2 hours ahead.")):
+            if (ctx.figures / f"{name}.png").exists():
+                figure(doc, ctx.figures / f"{name}.png", ctx.caption(caption))
+        doc.add_paragraph("Details: docs/findings_exploratory_diagnostics.md (E1), docs/findings_exploratory_history.md (E2), docs/findings_intraday.md (E3), "
+                          "docs/findings_exploratory_summary.md.")
+    else:
+        doc.add_paragraph("Pending: scripts/report_exploratory_summary.py summarizes E1–E3 once their tests are in.")
 
-    doc.add_heading(f"{section + 3}. Limitations", level=1)
+    data_gaps_section(doc, ctx, section + 3)
+
+    doc.add_heading(f"{section + 4}. Limitations", level=1)
     bullets(doc, [
         f"Fewer than 2,000 labeled days and {walks} test blocks: intervals are wide, and effects of a few hundredths of IC are hard to detect.",
         "Who the dealers are is not observed; the inferred GEX sign comes from participant OI covering all index options, not NIFTY alone.",
         "The source records some option OI as zero (2022) and the daily VIX file ends in April 2026; these rows are flagged, never imputed.",
-        "One prediction horizon (next day) and one snapshot time (15:15); other horizons were left out of scope.",
+        "The pre-registered tests use one horizon (next day) and one snapshot time (15:15); the 1–2 hour horizons (E3) are exploratory.",
+        "The main neural runs used the Mac (Apple GPU); the exploratory neural runs used Explorer V100s, so neural models are compared only within "
+        "one device. The V100 references reproduce the Mac's mean IC closely.",
     ])
 
-    doc.add_heading(f"{section + 4}. Conclusion", level=1)
+    doc.add_heading(f"{section + 5}. Conclusion", level=1)
     if rq1["beats_every_rung"]:
         conclusion = ("Reading every contract beats the one-number summary and every classical model on the pre-registered test. RQ2 shows "
                       "which part carries the gain.")
@@ -215,6 +243,8 @@ def main() -> None:
                        f"{fmt(ours.get('qlike_mean_per_walk'))}, the lowest on the ladder; Diebold–Mariano p against tuned LightGBM is "
                        f"{fmt(dm.get('dm_squared', {}).get('p_two_sided'))} (squared) and {fmt(dm.get('dm_qlike', {}).get('p_two_sided'))} (QLIKE). "
                        "These loss tests support, but are not, the pre-registered IC rule.")
+    if summary_path.exists() and tag == "main":
+        conclusion += " Exploratory follow-up (E1–E3): " + load(summary_path)["overall"]
     doc.add_paragraph(conclusion)
 
     feature_appendix(doc, ctx)
@@ -224,6 +254,9 @@ def main() -> None:
         "Data stages: clean_chain → compute_basis → compute_forward → compute_greeks → compute_gex → compute_features → compute_tokens → "
         "compute_targets → validate_data (scripts/, about 3 minutes).",
         "Models and tests: run_forecast → run_neural --save-attention → run_rq_tests → report_results → report_attention → write_final_report.",
+        "Exploratory E1–E3: configs/eval_exploratory_v2.yaml and configs/intraday.yaml; Mac CPU runs (compute_intraday_rv, the --grid intraday stages, "
+        "run_intraday classical rungs, run_exploratory_e1 residual LightGBM), Explorer GPU runs (hpc/, docs/hpc.md; seeds merged by scripts/merge_seeds.py), "
+        "then the --tests modes and the report_exploratory_* scripts.",
         f"Data config hash {ctx.m['features']['config_hash'][:12]}; eval config hash {tests['eval_config_hash'][:12]}; every results-store run records "
         "its git commit and whether the working tree was clean.",
     ])

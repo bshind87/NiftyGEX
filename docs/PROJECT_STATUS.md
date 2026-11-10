@@ -1,6 +1,6 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-06 (E1, E2 and E3 complete)
+**Last updated:** 2026-11-06 (E1–E3 complete, final report regenerated)
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
@@ -14,13 +14,11 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 Goal: results done by mid-November. Pick up here, in order:
 
-Exploratory experiments E1–E3 (`configs/eval_exploratory_v2.yaml`, registered before any run). Neural training on Explorer, the rest on the Mac (`docs/hpc.md`).
+Exploratory E1–E3 are complete (`docs/findings_exploratory_summary.md`) and the final Word report is regenerated with them (section 16, separate from RQ1–RQ3).
 
-1. **Commit** the exploratory and HPC code (section I) in GitHub Desktop.
-2. **Mac CPU, on that commit:** E3 data build (`compute_gex.py --grid intraday`, `compute_features.py --grid intraday`, `compute_intraday_rv.py`) plus the T2-unchanged check (`--verify` on both stages), E3 classical ladder (`run_intraday.py --horizon 1|2 --models persistence intraday_har har_gex lightgbm`), E1 residual LightGBM. Then commit.
-3. **Explorer** (`bash hpc/remote.sh …`, ssh alias `explorer`): sync, setup (CUDA check on v100-sxm2), `hpc/push_data.sh` (+ `chmod go-rwx`), verify, jobs, calibration wave on gpu-short → stop for go-ahead with updated estimates (`hpc/estimates.yaml`).
-4. **GPU waves** (`bash hpc/remote.sh loop`): short jobs on gpu-short, long jobs (E3 attention + GRU, E2 L = 72) queued on gpu for the night, courses-gpu when sooner, chained gpu-short pieces for pending long jobs. Pull, merge seeds, E1–E3 tests and reports, this page.
-5. **Final report** regeneration after all exploratory results; final slides (Dec 3/10).
+1. **Final slides** (Dec 3/10): main results (RQ1–RQ3), then the exploratory summary table.
+2. **Clean-commit reproducibility rerun** of the main pipeline (data stages, classical ladder, Mac neural main run on `12b11a0`'s code path).
+3. Optional, not registered: an intraday hybrid (intraday HAR forecast as an input) to separate inputs from architecture in E3.
 
 ## Known issues
 
@@ -121,21 +119,21 @@ Exploratory experiments E1–E3 (`configs/eval_exploratory_v2.yaml`, registered 
 | F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
-| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Layout checked on the development run (12 pages); regenerated from the main run on 4 Nov, with ablation and attention-map sections still pending. The clean-commit rerun is still to do |
+| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Regenerated 6 Nov with the attention maps, the Mac field-drop ablation and the exploratory E1–E3 section (the cluster's window runs are reported there, against a V100 reference). The clean-commit rerun is still to do |
 
-### I. Exploratory experiments E1–E3 🔄
+### I. Exploratory experiments E1–E3 ✅
 
 All labelled exploratory; registered in `configs/eval_exploratory_v2.yaml` (own hash) before any run. The main config and RQ1–RQ3 results are unchanged.
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
-| I1 | Registration | 🔄 | `configs/eval_exploratory_v2.yaml`: E1 (9 tests, Holm), E2 (4 tests vs L = 12, Holm), E3 (2 horizons, Holm), secondary scores, device rule, E3 training (patience 3, at most 30 epochs). To commit |
+| I1 | Registration | ✅ | `configs/eval_exploratory_v2.yaml`: E1 (9 tests, Holm), E2 (4 tests vs L = 12, Holm), E3 (2 horizons, Holm), secondary scores, device rule, E3 training (patience 3, at most 30 epochs). To commit |
 | I2 | E1 diagnostics (t2) | ✅ | `docs/findings_exploratory_diagnostics.md`. All 9 registered tests reject after Holm. Residual models (no volatility state) predict HAR's out-of-sample residual with IC 0.204–0.218; HAR + correction +0.030 to +0.046 IC; hybrid attention + GRU 0.492 (+0.047 over attention + GRU on V100); equal-weight combination 0.502 (+0.068 over HAR). State-only MLP 0.459 ≈ attention + GRU 0.445 (not significant): tokens add little inside the neural trainer. Leakage check: 0 of 1,800 rows use a source after 15:15. Runs: residual LightGBM `b825612bdd2a35d3` (Mac); merged V100 runs residual attention `b0e1c7e665609637`, residual DeepSets `dbb47542fe9b923b`, state MLP `fcc7b1437ca09ea6`, hybrid `1bff9652940fcd3c`; V100 L = 12 references DeepSets `42cf8f01b8b2ffe9`, attention `477e52e15478c1bd`, attention + GRU `a8164fd180864bf4` (IC 0.437 / 0.409 / 0.445 vs Mac 0.437 / 0.418 / 0.447). Every cluster run: commit `60b6e18`, `git_dirty = false`, Tesla V100-SXM2-32GB |
 | I3 | E2 more history (t2) | ✅ | `docs/findings_exploratory_history.md`. No registered test rejects after Holm (reference attention + GRU L = 12 on V100, IC 0.445): L = 24 0.457 (+0.012, p 0.046, Holm 0.19), L = 72 0.460 (+0.016, Holm 0.23), multi-day K = 5 0.438 (−0.007), K = 10 0.441 (−0.004); K = 5 has worse squared loss (DM p 0.012). Merged V100 runs: L = 24 `c126b21feef70d09`, L = 72 `b0516280c6644080`, K = 5 `2e496e8e6005fc94`, K = 10 `91efb6d0b796cc35` (commit `60b6e18`, clean) |
 | I4 | E3 data layer | ✅ | `configs/intraday.yaml` (separate from `data.yaml`, T2 hash unchanged), GEX and features stages `--grid intraday` (same 21-day logic) and `--verify` (T2 unchanged), `compute_intraday_rv.py`, strictly causal expiry choice (`causal_nearest_expiry`). Tests: `test_intraday_targets.py`, `test_intraday_features.py`. Built on `88e4bb3` (clean; intraday config hash `e3988a993d5b`): 23,712 rows, 23,031 with both horizons; 59 (1 h) and 83 (2 h) windows skipped for missing bars, 585 rows before the 60-day normal exists. T2 `--verify`: GEX outputs identical, features identical up to float rounding |
 | I5 | E3 ladder | ✅ | `docs/findings_intraday.md`. Registered test (Holm across horizons): attention + GRU is significantly **lower** than the best classical rung, 1 h 0.535 vs LightGBM 0.582 (−0.047, Holm p 0.0003, 4/25 walks), 2 h 0.558 vs intraday HAR 0.600 (−0.042, Holm p 0.018); neural RMSE and QLIKE also worse. Sanity: time of day explains ≈0% of the target (0.8% / 1.5% of raw log RV in 10:15–13:15); within-snapshot-time IC of intraday HAR 0.63–0.70, so the high intraday IC is volatility clustering, not a time-of-day ranking; persistence 0.541 / 0.587. Design note: the registered neural state lacks the backward-window RVs intraday HAR uses. Merged V100 runs 1 h: DeepSets `165a586db33f2ca7`, attention `1ae2825ad5d0d3ea`, attention + GRU `30862d8bb1dcdbd8`; 2 h: `d5a2f2971eeca62e`, `338a68d4ddd9f308`, `6b2ada3c65c38c45` (commit `60b6e18`, clean) |
 | I6 | Explorer tooling | ✅ | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Explorer: environment ready (torch 2.10.0+cu126, V100-SXM2, driver 545.23.08), transfer check 4,155 files 0 problems, calibration done (t2 L = 12: 0.4–0.8 min per walk, 1.0 GB GPU; E3 1 h: 0.9–1.5 min per walk, 3.7 GB), production waves from commit `60b6e18` (scheduler job 11685043; gpu-short + courses-gpu, gpu disabled). E1 and references done |
-| I7 | Reports | ⏳ | `docs/findings_exploratory_diagnostics.md`, `docs/findings_exploratory_history.md`, `docs/findings_intraday.md`, summary table, exploratory section in the final report |
+| I7 | Reports | ✅ | `docs/findings_exploratory_diagnostics.md` (E1), `docs/findings_exploratory_history.md` (E2), `docs/findings_intraday.md` (E3), `docs/findings_exploratory_summary.md` (cross-experiment table, verdicts from the Holm results by rule); exploratory section 16 in the final report (`scripts/write_final_report.py`) |
 
 ### G. External tasks
 
@@ -284,6 +282,11 @@ From `outputs/reports/missing_data.md`:
 - Explorer: one GPU type (v100-sxm2) for every job; short jobs on gpu-short, long jobs on gpu, courses-gpu when `sbatch --test-only` says sooner; jobs stop before a walk they cannot finish (deadline from the SLURM end time) and resume. Data on scratch kept private (`go-rwx`, `umask 077`). `docs/hpc_guide/` (course material) is gitignored.
 - Explorer jobs start from a clean environment (the login shell activates an unrelated conda env); `configs/paths.hpc.yaml` is now committed (it was gitignored by `configs/paths.*.yaml`); the data push retries per folder with ssh keepalives after a dropped connection, and always restores `go-rwx`.
 - The T2 `--verify` checks pass: GEX stage outputs identical; aggregate features identical except `gex_concentration_hhi` at float rounding (≤ 3e-16, summation order varies between runs).
+
+**2026-11-06 (evening)**
+- All 51 exploratory GPU jobs finished on Explorer from commit `60b6e18` (clean, V100-SXM2) in about 3.5 hours on gpu-short and courses-gpu; no production job was SIGKILLed. Seeds merged on the Mac exactly as a local three-seed run.
+- Results: E1 all 9 tests reject (the chain helps as a correction to HAR; combination best); E2 none reject; E3 attention + GRU significantly worse than the best classical rung at both horizons.
+- The final report's ablation table keeps only Mac-device ablations; the V100 window runs are reported in the exploratory section against the V100 reference (device rule).
 
 ## Open questions
 
