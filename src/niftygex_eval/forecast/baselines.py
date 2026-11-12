@@ -80,6 +80,50 @@ class Linear(Forecaster):
         return self.model_.predict(self._x(frame))
 
 
+class FallbackLinear(Forecaster):
+    """HAR with extra log columns that are never filled (exploratory v3 A1, HAR-IV).
+
+    ``levels`` lists extra-column sets from richest to plainest, ending with ``[]`` (HAR itself). Each level is an OLS
+    on HAR's columns plus its extra columns, fitted on the training rows that have every one of them (positive and
+    finite, since they enter as logs); a row is predicted by the richest level whose extra columns it has. HAR's own
+    columns keep ``Linear``'s handling.
+    """
+
+    def __init__(self, name: str, har_columns: list[str], levels: list[list[str]]) -> None:
+        if not levels or list(levels[-1]):
+            raise ValueError("the last level must be [] (plain HAR), so every row gets a prediction")
+        self.name, self.levels = name, [list(level) for level in levels]
+        self.models = [Linear(f"{name}_level{i}", [*har_columns, *level], []) for i, level in enumerate(self.levels)]
+
+    @staticmethod
+    def has(frame: pl.DataFrame, columns: list[str]) -> np.ndarray:
+        if not columns:
+            return np.ones(frame.height, dtype=bool)
+        values = matrix(frame, columns)
+        with np.errstate(invalid="ignore"):
+            return np.all(np.isfinite(values) & (values > 0), axis=1)
+
+    def fit(self, train: pl.DataFrame, outcome: str) -> "FallbackLinear":
+        for level, model in zip(self.levels, self.models):
+            model.fit(train.filter(pl.Series(self.has(train, level))), outcome)
+        return self
+
+    def level_of(self, frame: pl.DataFrame) -> np.ndarray:
+        """Index of the level that predicts each row (0 = richest)."""
+        out = np.full(frame.height, len(self.levels) - 1)
+        for i in reversed(range(len(self.levels))):
+            out[self.has(frame, self.levels[i])] = i
+        return out
+
+    def predict(self, frame: pl.DataFrame) -> np.ndarray:
+        level, out = self.level_of(frame), np.full(frame.height, np.nan)
+        for i, model in enumerate(self.models):
+            rows = level == i
+            if rows.any():
+                out[rows] = model.predict(frame.filter(pl.Series(rows)))
+        return out
+
+
 class TunedLightGBM(Forecaster):
     """LightGBM regression; parameters chosen on the inner split by MSE, then refit on the full training window."""
 

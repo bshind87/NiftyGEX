@@ -226,3 +226,14 @@ def test_sigkills_are_classified_by_shared_node() -> None:
     alone = {k: v for k, v in records.items() if k != "5"}
     assert kill_report("4", alone["4"], alone) == {"shared_with": []}            # no shared node: flagged for RC
     assert kill_report("2", records["2"], records) is None                        # not a SIGKILL
+
+
+def test_v3_job_list_has_one_job_per_check_horizon_and_seed() -> None:
+    from niftygex_eval.hpc_jobs import v3_job_list
+
+    jobs = v3_job_list([11, 12, 13], [1, 2])
+    names = [j.name for j in jobs]
+    assert len(names) == 12 == len(set(names))
+    assert sum(j.wave == "v3_a4" for j in jobs) == 6 and sum(j.wave == "v3_a2" for j in jobs) == 6
+    assert all(j.kind == "short" and "scripts/run_exploratory_v3.py" in j.command and "--seed" in j.command for j in jobs)
+    assert {j.command.split("--horizon ")[1].split()[0] for j in jobs if j.wave == "v3_a4"} == {"1", "2"}

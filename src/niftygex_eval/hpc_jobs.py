@@ -57,6 +57,25 @@ def job_list(seeds: list[int], horizons: list[int]) -> list[Job]:
     return jobs
 
 
+def v3_job_list(seeds: list[int], horizons: list[int]) -> list[Job]:
+    """The exploratory v3 GPU jobs (configs/eval_exploratory_v3.yaml): A4 first (the longer jobs), then A2.
+
+    A4 trains E3 attention + GRU with patience 8 and at most 60 epochs; the patience-3 runs took 18-21 min per seed,
+    so these are estimated at 40-75 min (short, gpu-short). A job stopped at the time limit resumes from its walk
+    checkpoints. A2 trains the E1 token corrections without the IV field (about a minute per seed).
+    """
+    jobs = []
+    for horizon in horizons:
+        for seed in seeds:
+            jobs.append(Job(f"v3_e3_patience8_{horizon}h_s{seed}", "v3_a4",
+                            f"scripts/run_exploratory_v3.py --parts attention_gru_patience8 --horizon {horizon} --seed {seed}",
+                            group="v3_e3_attention_gru_patience8"))
+    for seed in seeds:
+        for part in ("residual_attention_no_iv", "residual_deepsets_no_iv"):
+            jobs.append(Job(f"v3_{part}_s{seed}", "v3_a2", f"scripts/run_exploratory_v3.py --parts {part} --seed {seed}", group=f"v3_{part}"))
+    return jobs
+
+
 def render_script(job: Job, settings: dict[str, Any], gpu_type: str, walk_minutes: float | None) -> str:
     """The sbatch script of one job; partition and time limit are set by the scheduler at submission."""
     resources, scratch, code = settings["resources"], settings["scratch_dir"], settings["code_dir"]

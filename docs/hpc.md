@@ -50,6 +50,9 @@ Scratch is purged each semester: `hpc/pull_results.sh` copies results back to th
 4. **Data**: `bash hpc/push_data.sh` (rsync, then `chmod -R go-rwx`), then `bash hpc/remote.sh verify` (every file's size,
    rows and SHA-256 against the Mac manifests; `outputs/reports/transfer_check.json`).
 5. **Job scripts**: `bash hpc/remote.sh jobs v100-sxm2` (53 scripts; one per experiment, model, horizon and seed).
+   The v3 checks (`configs/eval_exploratory_v3.yaml`) are their own set: `bash hpc/remote.sh jobs v100-sxm2 v3` writes 12 scripts
+   (A4: E3 attention + GRU with patience 8, 2 horizons x 3 seeds; A2: the E1 token corrections without `iv`, 2 models x 3 seeds)
+   and replaces `jobs.json`, so the scheduler then runs only those.
 6. **Calibration**: `bash hpc/remote.sh scheduler --waves calibration` (two 2-walk attention + GRU jobs: T2 at L = 12 and
    E3 h = 1). Logs print minutes and peak GPU memory per walk. The measured walk minutes go into `hpc/estimates.yaml`
    (committed), then step 5 again so each script knows its walk length.
@@ -68,7 +71,8 @@ Scratch is purged each semester: `hpc/pull_results.sh` copies results back to th
 9. **Results** (Mac): `bash hpc/pull_results.sh` copies the results store, logs, markers and reports to
    `outputs/hpc_pull/` and runs `scripts/merge_seeds.py`: each run's three seeds are averaged per row exactly as a
    local three-seed run, every walk is rescored, and the merged runs are listed where the E1–E3 test scripts read
-   them (`neural_comparison_hpc.json`, `neural_comparison_window_24_hpc.json`, `exploratory_e{1,2,3}_runs.json`).
+   them (`neural_comparison_hpc.json`, `neural_comparison_window_24_hpc.json`, `exploratory_e{1,2,3}_runs.json`,
+   `exploratory_v3_runs.json`).
 
 ## Records
 

@@ -3,7 +3,7 @@
 #   bash hpc/remote.sh sync <commit>          clone/update ~/niftygex at a commit, create the private scratch layout
 #   bash hpc/remote.sh setup                  submit the environment build (CPU, short), then the CUDA check (gpu-short)
 #   bash hpc/remote.sh verify                 submit the transfer check (short)
-#   bash hpc/remote.sh jobs [gpu_type]        write the job scripts (default v100-sxm2)
+#   bash hpc/remote.sh jobs [gpu_type] [set]  write the job scripts (default v100-sxm2, set v2; v3 for checks A2/A4)
 #   bash hpc/remote.sh scheduler [args...]    one scheduler pass (e.g. --waves calibration, --dry-run)
 #   bash hpc/remote.sh loop                   submit the scheduler loop as a CPU job (hpc/scheduler.sbatch)
 #   bash hpc/remote.sh status                 queue, accounting and markers
@@ -19,7 +19,7 @@ case "$command" in
     sync) ssh "$ALIAS" "bash -s -- ${1:?commit}" < "$ROOT/hpc/sync_code.sh" ;;
     setup) ssh "$ALIAS" "cd ~/niftygex && umask 077 && id=\$(sbatch --parsable hpc/setup_env.sbatch) && sbatch --dependency=afterok:\$id hpc/cuda_check.sbatch && echo setup \$id" ;;
     verify) ssh "$ALIAS" "cd ~/niftygex && umask 077 && sbatch hpc/verify_transfer.sbatch" ;;
-    jobs) ssh "$ALIAS" "cd ~/niftygex && umask 077 && $MODULES && $PY hpc/make_jobs.py --gpu-type ${1:-v100-sxm2}" ;;
+    jobs) ssh "$ALIAS" "cd ~/niftygex && umask 077 && $MODULES && $PY hpc/make_jobs.py --gpu-type ${1:-v100-sxm2} --set ${2:-v2}" ;;
     scheduler) ssh "$ALIAS" "cd ~/niftygex && umask 077 && $MODULES && $PY hpc/scheduler.py --once $*" ;;
     loop) ssh "$ALIAS" "cd ~/niftygex && umask 077 && sbatch hpc/scheduler.sbatch" ;;
     status) ssh "$ALIAS" "bash -s" < "$ROOT/hpc/status.sh" ;;

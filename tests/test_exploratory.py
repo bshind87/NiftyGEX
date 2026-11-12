@@ -196,3 +196,33 @@ def test_exploratory_v3_config_registers_checks_without_touching_v2() -> None:
     assert {k: v for k, v in budget.items() if k not in ("patience", "max_epochs")} == \
         {k: v for k, v in v2["e3"]["training"].items() if k not in ("patience", "max_epochs")}
     assert v3["compute"]["gpu_type"] == v2["compute"]["gpu_type"]
+
+
+def test_har_iv_never_fills_iv_and_falls_back_to_plain_har() -> None:
+    from niftygex_eval.forecast.baselines import FallbackLinear
+
+    rng = np.random.default_rng(3)
+    n = 400
+    rv = np.exp(rng.normal(-1.5, 0.3, n))
+    iv = np.exp(rng.normal(-1.6, 0.3, n))
+    y = 0.5 * np.log(rv) + 1.0 * np.log(iv) + rng.normal(0, 0.05, n)
+    iv_missing = rng.random(n) < 0.2
+    frame = pl.DataFrame({"rv": rv, "atm_iv": np.where(iv_missing, np.nan, iv), "y": y})
+    model = FallbackLinear("har_iv", ["rv"], [["atm_iv"], []]).fit(frame, "y")
+    plain = Linear("har", ["rv"], []).fit(frame, "y")
+    levels, out = model.level_of(frame), model.predict(frame)
+    assert (levels == 1).sum() == iv_missing.sum() and np.isfinite(out).all()
+    # Rows without IV get exactly the plain HAR fit; the IV model was fitted on the IV rows only (no fill, no flag).
+    assert np.allclose(out[iv_missing], plain.predict(frame)[iv_missing])
+    iv_rows = frame.filter(~pl.Series(iv_missing))
+    assert np.allclose(out[~iv_missing], Linear("x", ["rv", "atm_iv"], []).fit(iv_rows, "y").predict(iv_rows))
+    assert np.mean((out[~iv_missing] - y[~iv_missing]) ** 2) < np.mean((plain.predict(frame)[~iv_missing] - y[~iv_missing]) ** 2)
+    with pytest.raises(ValueError):
+        FallbackLinear("bad", ["rv"], [["atm_iv"]])
+
+
+def test_har_iv_treats_non_positive_iv_as_missing() -> None:
+    from niftygex_eval.forecast.baselines import FallbackLinear
+
+    frame = pl.DataFrame({"atm_iv": [0.2, 0.0, -1.0, None, float("nan"), 0.3]})
+    assert FallbackLinear.has(frame, ["atm_iv"]).tolist() == [True, False, False, False, False, True]

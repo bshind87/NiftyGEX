@@ -9,6 +9,7 @@ provenance. Then lists the merged runs where the test scripts look for them:
   stage exploratory_e1  -> outputs/results/exploratory_e1_runs.json   (by part)
   stage exploratory_e2  -> outputs/results/exploratory_e2_runs.json   (by tag)
   stage exploratory_e3  -> outputs/results/exploratory_e3_runs.json   (by horizon, then model)
+  stage exploratory_v3  -> outputs/results/exploratory_v3_runs.json   (by part)
 and writes outputs/results/merge_seeds.json (merged groups and incomplete ones). Rerunning is safe.
 """
 from __future__ import annotations
@@ -98,6 +99,8 @@ def main() -> None:
                 current.setdefault(key_h, {})[spec["model"]] = run_id
                 return current
             update_json(dest / "exploratory_e3_runs.json", add_e3)
+        elif stage == "exploratory_v3":
+            update_json(dest / "exploratory_v3_runs.json", lambda c, spec=spec, run_id=run_id: {**c, spec["part"]: run_id})
 
     (dest / "merge_seeds.json").write_text(json.dumps({"source": str(source), "seeds": wanted, "merged": merged, "incomplete": incomplete},
                                                       indent=2, default=str) + "\n")
