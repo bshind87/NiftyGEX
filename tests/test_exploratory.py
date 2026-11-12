@@ -175,3 +175,24 @@ def test_exploratory_config_parses_and_registers_every_family() -> None:
     assert all(isinstance(c, str) for c in v2["e3"]["intraday_har_columns"])
     assert v2["references"]["main_eval_config_hash"].startswith("552a3501001a")
     assert v2["compute"]["gpu_type"] == "v100-sxm2"
+
+
+def test_exploratory_v3_config_registers_checks_without_touching_v2() -> None:
+    from niftygex_eval.config import load_exploratory_v3_config
+
+    cfg = load_exploratory_v3_config()
+    v3, v2 = cfg["exploratory_v3"], cfg["exploratory"]
+    assert v3["label"] == "exploratory" and len(cfg["exploratory_v3_hash"]) == 64
+    # The v2 file the checks build on is the one E1-E3 ran under.
+    assert v3["references"]["exploratory_v2_config_hash"] == cfg["exploratory_hash"]
+    assert v3["references"]["main_eval_config_hash"].startswith("552a3501001a")
+    names = [t["name"] for t in v3["tests"]]
+    assert len(names) == 8 == len(set(names))
+    assert v3["a1_har_iv"]["chain_correction"]["lightgbm_columns"] == v2["e1"]["residual"]["lightgbm_columns"]
+    assert v3["a1_har_iv"]["extra_log_columns"] == ["atm_iv"] and v3["a1_har_iv"]["fallback_order"] == [["atm_iv"], []]
+    assert v3["a2_token_correction_no_iv"]["drop_token_features"] == ["iv"]
+    budget = v3["a4_e3_training_budget"]["training"]
+    assert (budget["patience"], budget["max_epochs"]) == (8, 60)
+    assert {k: v for k, v in budget.items() if k not in ("patience", "max_epochs")} == \
+        {k: v for k, v in v2["e3"]["training"].items() if k not in ("patience", "max_epochs")}
+    assert v3["compute"]["gpu_type"] == v2["compute"]["gpu_type"]

@@ -33,3 +33,14 @@ def load_exploratory_config(profile: str | None = None) -> dict[str, Any]:
     with (CONFIG_ROOT / "eval_exploratory_v2.yaml").open() as stream:
         exploratory = yaml.safe_load(stream)
     return {**cfg, "exploratory": exploratory, "exploratory_hash": eval_hash(exploratory)}
+
+
+def load_exploratory_v3_config(profile: str | None = None) -> dict[str, Any]:
+    """configs/eval_exploratory_v2.yaml (E1-E3, unchanged) plus configs/eval_exploratory_v3.yaml (checks A1-A4, B5-B8).
+
+    ``exploratory_v3_hash`` covers the v3 file only; v3 runs record it next to the main and v2 hashes.
+    """
+    cfg = load_exploratory_config(profile)
+    with (CONFIG_ROOT / "eval_exploratory_v3.yaml").open() as stream:
+        v3 = yaml.safe_load(stream)
+    return {**cfg, "exploratory_v3": v3, "exploratory_v3_hash": eval_hash(v3)}

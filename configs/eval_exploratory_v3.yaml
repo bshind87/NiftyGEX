@@ -1,0 +1,112 @@
+# Exploratory checks A1-A4 and reported results B5-B8, registered here before any of their runs. Separate from
+# configs/eval.yaml (the pre-registered RQ1-RQ3, eval config hash 552a3501001a) and from
+# configs/eval_exploratory_v2.yaml (E1-E3); neither is changed. Every run made under this file records its own hash
+# (exploratory_config_hash) and the label "exploratory". Harness, Forecaster interface, metrics (IC primary; RMSE,
+# QLIKE), paired per-walk tests, walks won, Diebold-Mariano and Holm are the ones used for E1-E3.
+
+label: exploratory
+alpha: 0.05
+
+# Device rule as in E1-E3: every neural model compared with another neural model runs on the same GPU type.
+compute:
+  gpu_type: v100-sxm2
+  device: cuda
+references:
+  main_eval_config_hash: 552a3501001a7610276f8828980db4e6546aa5726f403249ae00959b7feafa56
+  exploratory_v2_config_hash: 1c213d4b8aa3ba2f0080db1f140e64cda2d53a097e804713ca2b8c9751b8e0ee
+  classical: forecast_comparison.json        # har, har_gex, lightgbm (Mac, CPU): main results
+  neural: neural_comparison.json             # attention_gru at L = 12 (Mac): main results, used by the combination
+  e1: exploratory_e1.json                    # residual_deepsets, residual_attention with IV (V100)
+  e3: [exploratory_e3_1h.json, exploratory_e3_2h.json]   # patience-3 attention_gru (V100) and the classical rungs
+
+# A1. HAR-IV: does implied volatility add to HAR, and does the chain still add once IV is in?
+a1_har_iv:
+  # OLS on logs, like HAR: HAR's columns plus log ATM IV. Previous-day VIX is left out: it tracks ATM IV closely
+  # (about 0.95) and is missing after 2026-04-06. ATM IV is never filled: each walk fits HAR-IV on the training rows
+  # that have ATM IV, and plain HAR on all training rows; a row without ATM IV is predicted by plain HAR. The report
+  # states how many test rows use the fallback. HAR's own columns keep HAR's handling.
+  model: har_iv
+  extra_log_columns: [atm_iv]
+  fallback_order: [[atm_iv], []]
+  report_fallback_rows: true
+  chain_correction:
+    # The E1 chain-only LightGBM correction (no volatility state), on top of HAR-IV instead of HAR:
+    # r = y - HAR-IV forecast; prediction = HAR-IV + r_hat. HAR-IV is refitted inside every (inner) training window.
+    name: har_iv_plus_chain
+    base: har_iv
+    lightgbm_columns: [gex_norm_naive, gex_norm_absolute, gex_norm_inferred, gex_sign_inferred, gex_expiries,
+                       includes_same_day_expiry, gex_concentration_hhi, call_wall_distance_pct, put_wall_distance_pct,
+                       max_pain_distance_pct, max_gex_strike_distance_pct, flip_naive_distance_pct, has_flip,
+                       has_inferred_flip, put_call_oi_ratio, oi_change_near_money_calls, oi_change_near_money_puts,
+                       participant_pro_net_index_calls, participant_pro_net_index_puts, participant_fii_net_index_calls,
+                       participant_fii_net_index_puts, participant_client_net_index_calls, participant_client_net_index_puts]
+  # Item 12 wording, fixed in advance: the E1 conclusion follows the Holm result of har_iv_plus_chain_vs_har_iv.
+  interpretation:
+    reject: "The chain adds information beyond implied volatility: the chain correction still improves on HAR-IV."
+    not_reject: "The E1 gain comes mainly from implied-volatility information: over HAR-IV the chain correction adds nothing detectable."
+
+# A2. The E1 token corrections with the IV field dropped from the tokens (tokens only, empty state vector, base HAR).
+a2_token_correction_no_iv:
+  models: [deepsets, attention]              # runs residual_deepsets_no_iv, residual_attention_no_iv
+  drop_token_features: [iv]
+  # gamma, delta and strike GEX are computed from IV and stay in the tokens: dropping them would remove the
+  # positioning signal itself. This check removes the IV level only, so IV's influence cannot be fully removed from
+  # the chain features (a stated limitation); A1 is the test that separates the two.
+  neural_state: none
+  base: har
+  compare_with_e1: {deepsets: residual_deepsets, attention: residual_attention}   # same device (V100)
+
+# A3. The E1 equal-weight combination (HAR, LightGBM, attention + GRU; Mac main runs) against the best single models.
+a3_combination:
+  members: [har, lightgbm, attention_gru]
+  weights: equal
+  against: [lightgbm, har_iv]
+
+# A4. E3 training budget: E3 attention + GRU rerun with the main-run patience and epoch cap.
+a4_e3_training_budget:
+  horizons: [1, 2]
+  model: attention_gru
+  # Everything else as in eval_exploratory_v2.yaml e3 (window, state, data, walks, seeds, lr, Huber).
+  training: {huber_delta: 1.0, lr: 0.001, weight_decay: 0.01, batch_size: 64, max_epochs: 60, patience: 8, refit: false,
+             seeds: [11, 12, 13]}
+  # Best classical rung per horizon, by E3's registered rule (highest mean per-walk IC among persistence, intraday_har,
+  # har_gex, lightgbm), read from the E3 results files.
+  best_classical_from: e3
+
+# Primary tests: one family, Holm across all eight. Per-walk IC, paired t with 95% CI (26 walks; 25 for A4).
+tests:
+  - {name: har_iv_vs_har, a: har_iv, b: har}
+  - {name: har_iv_plus_chain_vs_har_iv, a: har_iv_plus_chain, b: har_iv}
+  - {name: residual_deepsets_no_iv_vs_har, a: residual_deepsets_no_iv, b: har}
+  - {name: residual_attention_no_iv_vs_har, a: residual_attention_no_iv, b: har}
+  - {name: combination_vs_lightgbm, a: combination, b: lightgbm}
+  - {name: combination_vs_har_iv, a: combination, b: har_iv}
+  - {name: e3_attention_gru_patience8_vs_best_classical_1h, a: attention_gru_patience8, b: best_classical, horizon: 1}
+  - {name: e3_attention_gru_patience8_vs_best_classical_2h, a: attention_gru_patience8, b: best_classical, horizon: 2}
+
+# Secondary, unadjusted: reported next to the primary tests, never as claims.
+secondary:
+  - har_iv_plus_chain vs har (to set beside the E1 HAR + LightGBM correction)
+  - residual_deepsets_no_iv vs residual_deepsets and residual_attention_no_iv vs residual_attention (change from dropping IV)
+  - attention_gru_patience8 vs the patience-3 E3 run, per horizon, and stopping epochs of both
+  - RMSE, QLIKE and Diebold-Mariano (Newey-West, 5 lags) for every primary comparison
+
+# B. Reported results. B5, B6 and B8 come from runs that already exist; B7 adds three cheap classical runs. Some of
+# these numbers were seen before this file was written, so they are descriptive: no Holm family, labelled exploratory.
+reported:
+  b5_conditional_ic: {source: exploratory_e1.json, field: conditional_ic}   # as registered in v2 e1.conditional
+  b6_state_only_losses:
+    models: [state_mlp, deepsets_hpc, attention_hpc, attention_gru_hpc]     # V100 runs; plus har and lightgbm (Mac)
+    metrics: [ic, rmse, qlike]
+  b7_gex_beyond_recent_volatility:
+    comparison: {a: har_gex, b: har}                                        # paired per-walk IC, unadjusted
+    by_convention:                                                          # ridge, alpha on the inner split, like har_gex
+      har_gex_naive: [gex_norm_naive]
+      har_gex_absolute: [gex_norm_absolute]
+      har_gex_inferred: [gex_norm_inferred, gex_sign_inferred]
+  b8_detectable_effect:
+    # From the RQ1 per-walk IC differences (attention + GRU vs each classical rung with an IC): the upper end of the
+    # 95% interval (gains above it are ruled out at the 5% level) and the gain the paired t-test detects with 80%
+    # power, (t_0.975 + t_0.80, n - 1 df) x the standard error of the mean difference.
+    source: rq_tests.json
+    power: 0.80
