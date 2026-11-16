@@ -1,11 +1,11 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-10 (clean-commit rerun reproduces the main pipeline exactly; final slides drafted)
+**Last updated:** 2026-11-15 (exploratory v3 checks A1–A4 run and reported; B5–B8 reported)
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** main runs on commit `12b11a0` (`git_dirty = false`); exploratory Mac runs on `88e4bb3` (clean). Commits are made through GitHub Desktop.
-**Tests:** 180 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 184 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -137,6 +137,18 @@ All labelled exploratory; registered in `configs/eval_exploratory_v2.yaml` (own 
 | I5 | E3 ladder | ✅ | `docs/findings_intraday.md`. Registered test (Holm across horizons): attention + GRU is significantly **lower** than the best classical rung, 1 h 0.535 vs LightGBM 0.582 (−0.047, Holm p 0.0003, 4/25 walks), 2 h 0.558 vs intraday HAR 0.600 (−0.042, Holm p 0.018); neural RMSE and QLIKE also worse. Sanity: time of day explains ≈0% of the target (0.8% / 1.5% of raw log RV in 10:15–13:15); within-snapshot-time IC of intraday HAR 0.63–0.70, so the high intraday IC is volatility clustering, not a time-of-day ranking; persistence 0.541 / 0.587. Design note: the registered neural state lacks the backward-window RVs intraday HAR uses. Merged V100 runs 1 h: DeepSets `165a586db33f2ca7`, attention `1ae2825ad5d0d3ea`, attention + GRU `30862d8bb1dcdbd8`; 2 h: `d5a2f2971eeca62e`, `338a68d4ddd9f308`, `6b2ada3c65c38c45` (commit `60b6e18`, clean) |
 | I6 | Explorer tooling | ✅ | `hpc/` (settings, env setup, code sync, push/pull, transfer check, 53 job scripts, scheduler within partition limits, status), `scripts/merge_seeds.py` (seeds averaged exactly as one local run: tested), per-seed `--seed` in every runner, per-walk resume. Explorer: environment ready (torch 2.10.0+cu126, V100-SXM2, driver 545.23.08), transfer check 4,155 files 0 problems, calibration done (t2 L = 12: 0.4–0.8 min per walk, 1.0 GB GPU; E3 1 h: 0.9–1.5 min per walk, 3.7 GB), production waves from commit `60b6e18` (scheduler job 11685043; gpu-short + courses-gpu, gpu disabled). E1 and references done |
 | I7 | Reports | ✅ | `docs/findings_exploratory_diagnostics.md` (E1), `docs/findings_exploratory_history.md` (E2), `docs/findings_intraday.md` (E3), `docs/findings_exploratory_summary.md` (cross-experiment table, verdicts from the Holm results by rule); exploratory section 16 in the final report (`scripts/write_final_report.py`) |
+
+### J. Exploratory v3 checks A1–A4, reported results B5–B8 ✅
+
+Registered in `configs/eval_exploratory_v3.yaml` (hash `ce47f4c521d1`, commit `4ab2d7c`) before any run; runs from `56f802c`, clean (A1, B7 on the Mac CPU; A2, A4 on Explorer V100). `scripts/run_exploratory_v3.py` → `outputs/results/exploratory_v3.json`; `scripts/report_exploratory_v3.py` → `docs/findings_exploratory_v3.md`, `outputs/reports/exploratory_v3.json`.
+
+| ID | Check | Status | Summary |
+|---|---|---|---|
+| J1 | A1 HAR-IV; chain correction on HAR-IV | ✅ | 7 of 8 Holm tests reject. HAR-IV vs HAR +0.034; HAR-IV + chain vs HAR-IV +0.047 (rejects): the chain adds information beyond implied volatility. 4 test rows without ATM IV use plain HAR |
+| J2 | A2 token corrections without `iv` | ✅ | DeepSets +0.025 vs HAR (does not reject); attention +0.039 (rejects); dropping IV changes little vs E1 |
+| J3 | A3 combination vs best single models | ✅ | vs LightGBM +0.055, vs HAR-IV +0.034, both reject |
+| J4 | A4 E3 training budget (patience 8, 60 epochs) | ✅ | Still significantly worse than the best classical rung at 1 h and 2 h; no change vs patience 3: the E3 gap is not a training-budget effect |
+| J5 | B5–B8 reporting | ✅ | Conditional IC table; state-only QLIKE (tokens add no detectable QLIKE gain); GEX beyond HAR: not detectably; detectable-effect statement for RQ1 |
 
 ### G. External tasks
 
@@ -294,6 +306,10 @@ From `outputs/reports/missing_data.md`:
 **2026-11-10**
 - Clean-commit reproducibility rerun of the main pipeline from `d16f820` into a separate `repro` path profile (gitignored): every stage, the classical ladder and the Mac neural main run reproduce the originals exactly (`docs/findings_reproducibility.md`). The validation manifest records `git_dirty = true` by construction, because that stage writes the tracked `docs/validation_report.md` before its manifest; the rerun's copy was compared and the committed file restored.
 - Final deck built by extending deck v10 rather than starting fresh, so the talk keeps the proposal's look.
+
+**2026-11-15**
+- Exploratory v3 checks run from `56f802c` (clean) under `configs/eval_exploratory_v3.yaml` (`ce47f4c521d1`); E3's patience-8 rerun confirms the intraday gap is not a training-budget effect. HAR-IV uses ATM IV only (VIX left out: it tracks ATM IV and ends 2026-04-06); rows without ATM IV use plain HAR.
+- G4 checked against NSE/SEBI circulars (broker and news summaries): every lot-size date and the 2024-11-20 marker match; no RQ3 walk moves. Config not changed, pending approval.
 
 ## Open questions
 
