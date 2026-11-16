@@ -1,11 +1,11 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-15 (exploratory v3 checks A1–A4 run and reported; B5–B8 reported)
+**Last updated:** 2026-11-16 (RQ1 reworded in every report, slide and the study guide; RMSE and QLIKE shown first; deck builder in scripts/)
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
 **Code:** main runs on commit `12b11a0` (`git_dirty = false`); exploratory Mac runs on `88e4bb3` (clean). Commits are made through GitHub Desktop.
-**Tests:** 184 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
+**Tests:** 187 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** final presentation 2026-12-03 / 12-10
 
 Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · ❓ Unverified
@@ -115,14 +115,14 @@ The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_repr
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
-| F1 | RQ1 | ✅ | Beats every rung: no. Significant only vs persistence on IC; supporting DM losses favour it over LightGBM |
+| F1 | RQ1 | ✅ | Performs as well as the best classical models: on par with HAR, HAR + GEX and LightGBM on IC, far ahead of persistence; lowest RMSE and QLIKE of all models (QLIKE significantly below HAR + GEX and LightGBM). The pre-registered rule (significant IC gain over every rung) is not met |
 | F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection). Field drop done (exploratory): without `oi_change_since_previous_close_pct`, attention + GRU IC 0.459 vs 0.447 (+0.012, 95% CI −0.009 to +0.034, 15 of 26 walks), QLIKE 0.204 vs 0.189 (worse); the concentrated-attention days go from 4 to 0. Windows 24 and 72 run on Explorer with a fresh L = 12 reference (E2, section I) |
 | F3 | RQ3 | ✅ | Gain +0.003 (19 walks before) vs −0.014 (7 after); Welch p 0.74 |
 | F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
 | F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Regenerated 6 Nov with the attention maps, the Mac field-drop ablation and the exploratory E1–E3 section (the cluster's window runs are reported there, against a V100 reference). Clean-commit rerun done 10 Nov (`scripts/report_reproducibility.py` → `outputs/reports/reproducibility.json`, `docs/findings_reproducibility.md`): from `d16f820` into the `repro` profile, 2,367 data files identical and 1 within float rounding (2.2e-16), all manifest counts and flags equal, all 8 main runs' predictions identical, RQ tests identical; every rerun run records `git_dirty = false` |
-| F8 | Final presentation | 🔄 | `docs/deliverables/NiftyGEX_Final_Presentation.pptx` (gitignored): deck v10 extended with 10 results slides (scoreboard, RQ1–RQ3, attention maps, E1–E3, takeaways, deliverables) and 4 hidden backups; every number read from `outputs/results` and `outputs/reports`. Study guide for the Q&A: `docs/deliverables/NiftyGEX_Study_Guide.pdf`. Awaiting review |
+| F8 | Final presentation | 🔄 | `docs/deliverables/NiftyGEX_Final_Presentation.pptx` (gitignored): deck v10 extended with 10 results slides (scoreboard, RQ1–RQ3, attention maps, E1–E3, takeaways, deliverables) and 4 hidden backups; every number read from `outputs/results` and `outputs/reports`. Study guide for the Q&A: `docs/deliverables/NiftyGEX_Study_Guide.pdf`. Deck built by `scripts/build_final_deck.py` (recovered from the scratch builder; rebuilt the 10 Nov deck text-identically), with a new "What the scores mean" slide and RMSE/QLIKE-first scoreboard and Q1 slides. Awaiting review |
 
 ### I. Exploratory experiments E1–E3 ✅
 
@@ -187,8 +187,7 @@ Moved to `archive/` (code, tests, configs, docs) and `outputs/archive/` (summari
 | Self-attention | 0.418 | 0.324 to 0.512 | 0.293 | 0.197 |
 | Attention + GRU | 0.447 | 0.363 to 0.531 | 0.285 | 0.189 |
 
-- **RQ1: not supported.** Attention + GRU ties the best classical models on IC (vs HAR +0.012, p 0.61; vs LightGBM −0.001, p 0.95); it beats only persistence.
-- **On losses it is the best model** (lowest RMSE and QLIKE). Diebold–Mariano favours it over LightGBM on squared loss (p 0.015) and QLIKE (p 0.042), and over HAR + GEX on QLIKE (p 0.033). These are supporting tests, not the pre-registered IC rule.
+- **RQ1: the model does well, but not by a clear margin.** Attention + GRU ranks next-day volatility on par with the best classical models (IC 0.447 vs HAR 0.434, +0.012, p 0.61; HAR + GEX 0.445; LightGBM 0.448, −0.001, p 0.95) and far better than persistence (+0.186, 24 of 26 walks). It has the lowest forecast error of every model: RMSE 0.285 and QLIKE 0.189. Diebold–Mariano: QLIKE lower than HAR + GEX by 19% (p 0.033) and LightGBM by 16% (p 0.042), RMSE lower than LightGBM by 5% (p 0.015); these are supporting tests. The pre-registered rule (a significant IC gain over every classical rung) is not met; gains above about +0.06 IC are ruled out. Wording in every report comes from `src/niftygex_eval/rq1_summary.py`.
 - **RQ2:** attention vs DeepSets −0.018 (Holm p 0.23); history (attention + GRU vs attention) +0.028 (Holm p 0.20). Neither rejects.
 - **RQ3:** no detectable change in the gain over LightGBM after the Nov 2024 marker (p 0.74; only 7 walks after).
 - **Attention maps (exploratory, `docs/findings_attention.md`):** pooling weights are almost exactly a plain average (median largest weight 1.008× average). The concentrated days (4 of 1,552 for attention + GRU, all late 2024–2026) put the weight on the day's largest OI change %, a field that is not log-transformed. This fits RQ2 (attention ≈ DeepSets); the field-drop ablation tests it.
@@ -310,6 +309,10 @@ From `outputs/reports/missing_data.md`:
 **2026-11-15**
 - Exploratory v3 checks run from `56f802c` (clean) under `configs/eval_exploratory_v3.yaml` (`ce47f4c521d1`); E3's patience-8 rerun confirms the intraday gap is not a training-budget effect. HAR-IV uses ATM IV only (VIX left out: it tracks ATM IV and ends 2026-04-06); rows without ATM IV use plain HAR.
 - G4 checked against NSE/SEBI circulars (broker and news summaries): every lot-size date and the 2024-11-20 marker match; no RQ3 walk moves. Config not changed, pending approval.
+
+**2026-11-16**
+- Study guide extended: existing work, every model with its metrics (main ladder, E1, E2, E3, v3) and a limitations chapter, generated by `scripts/write_study_guide.py` → `docs/study_guide_generated.md` (numbers from the results files; a realized-volatility noise floor of about 0.10 computed from the futures bars); "Explain it" boxes in every chapter. Data-access limitation recorded: broker-API history window (about six years, per the team) and enterprise-only historical option data.
+- RQ1 is now worded in every report as "performs as well as the best classical models, best on forecast error, not by the clear margin hoped for", instead of a bare "no", after a TA read "no" as "the model does poorly". The pre-registered answer is unchanged. RMSE and QLIKE are shown first, with plain-language definitions, a forecast-error figure and a what-each-step-adds table (`scripts/report_results.py`, `scripts/write_final_report.py`).
 
 ## Open questions
 

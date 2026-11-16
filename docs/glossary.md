@@ -123,7 +123,7 @@ Terms used across the code, reports and status page. Definitions follow the impl
 | **IC, Information Coefficient** | Spearman rank correlation of forecasts and outcomes within a test block; 1 = perfect order, 0 = random. Primary score, averaged over walks |
 | **Spearman correlation** | Correlation of ranks rather than values; robust to outliers |
 | **RMSE** | Root mean squared error of the forecast; lower is better |
-| **QLIKE** | Volatility loss that penalizes under-forecasting more: exp(2(y − ŷ)) − 2(y − ŷ) − 1 on the log ratio; lower is better |
+| **QLIKE** | The standard loss for volatility forecasts. It compares realized variance s with forecast variance h: s/h − log(s/h) − 1 (on our log ratio, exp(2(y − ŷ)) − 2(y − ŷ) − 1); 0 is perfect, lower is better. Why we use it: it punishes under-forecasting more (a forecast 20% too low costs about twice as much as one 20% too high; `docs/findings_models.md` shows the computed values), it measures misses as ratios so calm and wild days count alike, and it ranks forecasts correctly even though true volatility is only measured with noise (Patton, 2011) |
 | **R² vs HAR** | Share of HAR's squared error a model removes; negative means worse than HAR |
 | **95% confidence interval** | Range that plausibly contains the true value; an interval for a difference that spans 0 shows no clear difference |
 | **p-value** | How surprising the result would be if there were no true difference; the threshold is α = 0.05 |

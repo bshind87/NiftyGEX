@@ -14,6 +14,7 @@ from pathlib import Path
 from niftygex.config import REPO_ROOT
 from niftygex.io.parquet import write_report
 from niftygex_eval.config import load_eval_config
+from niftygex_eval.rq1_summary import METRICS_PLAIN, ladder_improvements, qlike_explained, rq1_summary
 from niftygex_eval.docx_report import bullets, figure, footer, load, new_document, table
 from niftygex_eval.report_sections import data_gaps_section, data_sections, feature_appendix, load_data_context
 
@@ -82,7 +83,7 @@ def main() -> None:
     if tag != "main":
         doc.add_paragraph(f"DEVELOPMENT RUN ({walks} walks, not a result): this document checks the report layout only.")
 
-    rq1_answer = "yes" if rq1["beats_every_rung"] else "no"
+    summary = rq1_summary(rq1["comparisons"], ladder, alpha, rq1["beats_every_rung"])
     doc.add_heading("Abstract", level=1)
     doc.add_paragraph(
         "Traders compress the NIFTY option chain into one number, gamma exposure (GEX). We built an auditable point-in-time pipeline "
@@ -90,8 +91,8 @@ def main() -> None:
         f"of every liquid contract at 72 snapshots per day ({ctx.m['tokens']['counts']['tokens']:,} rows), and compared eight models on the same "
         f"{walks} walk-forward test windows for next-day volatility relative to its recent normal. Our attention + GRU model reaches a mean "
         f"per-walk IC of {fmt(ours.get('ic_mean_per_walk'))}, against {fmt(har.get('ic_mean_per_walk'))} for HAR-RV and "
-        f"{fmt(best_classical['ic_mean_per_walk'])} for the best classical model ({LABELS[best_classical['model']]}). Pre-registered RQ1 "
-        f"(beats every classical rung at {alpha}): {rq1_answer}.")
+        f"{fmt(best_classical['ic_mean_per_walk'])} for the best classical model ({LABELS[best_classical['model']]}). "
+        f"RQ1: {summary['headline']} {summary['loss']} {summary['rule']}")
 
     doc.add_heading("1. Introduction and research questions", level=1)
     doc.add_paragraph("Option dealers hedge, and a common belief is that their aggregate gamma decides whether markets are calm (dealers long "
@@ -136,15 +137,40 @@ def main() -> None:
     ])
 
     doc.add_heading(f"{n + 2}. Results: the full ladder", level=1)
-    table(doc, ["Step", "Model", "Mean IC", "95% interval", "RMSE", "QLIKE"],
-          [[s, LABELS[k], fmt(ladder[k].get("ic_mean_per_walk")), f"{ladder[k]['ic_low']:.3f} to {ladder[k]['ic_high']:.3f}" if ladder[k].get("ic_ci95") else "—",
-            fmt(ladder[k]["rmse_mean_per_walk"]), fmt(ladder[k]["qlike_mean_per_walk"])] for s, k, _, _ in STEPS if k in ladder],
-          [0.5, 1.6, 0.9, 1.5, 0.9, 0.9], size=9)
+    doc.add_paragraph("Three scores, all on the same 26 test periods:")
+    bullets(doc, [f"{name}: {text}." for name, text in METRICS_PLAIN])
+    doc.add_paragraph("Why QLIKE?")
+    bullets(doc, qlike_explained())
+    table(doc, ["Step", "Model", "RMSE", "QLIKE", "Mean IC", "IC 95% interval"],
+          [[s, LABELS[k], fmt(ladder[k]["rmse_mean_per_walk"]), fmt(ladder[k]["qlike_mean_per_walk"]), fmt(ladder[k].get("ic_mean_per_walk")),
+            f"{ladder[k]['ic_low']:.3f} to {ladder[k]['ic_high']:.3f}" if ladder[k].get("ic_ci95") else "—"] for s, k, _, _ in STEPS if k in ladder],
+          [0.5, 1.6, 0.9, 0.9, 0.9, 1.5], size=9)
+    if (ctx.figures / f"results_errors{suffix}.png").exists():
+        figure(doc, ctx.figures / f"results_errors{suffix}.png", ctx.caption("Forecast error per model (lower is better): RMSE and QLIKE."), width=6.3)
+    doc.add_paragraph("What each step adds: change against HAR-RV for the errors (negative = lower error, better) and IC gain against "
+                      "persistence, HAR-RV and the previous step (differences of means, descriptive; the paired tests follow in RQ1 and RQ2).")
+    pct = lambda v: "—" if v is None else f"{v:+.1f}%"
+    sgn = lambda v: "—" if v is None else f"{v:+.3f}"
+    table(doc, ["Model", "RMSE vs HAR", "QLIKE vs HAR", "IC", "IC vs persistence", "IC vs HAR", "IC vs previous step"],
+          [[r["name"], pct(r["rmse_vs_har_pct"]), pct(r["qlike_vs_har_pct"]), fmt(r["ic"]), sgn(r["ic_vs_persistence"]), sgn(r["ic_vs_har"]),
+            sgn(r["ic_vs_previous"])] for r in ladder_improvements(ladder)], [1.4, 0.9, 0.9, 0.6, 0.9, 0.8, 1.0], size=8.5)
     figure(doc, ctx.figures / f"results_ladder_ic{suffix}.png", ctx.caption("Mean per-walk IC with 95% intervals: classical (blue) and neural (orange)."), width=5.8)
     figure(doc, ctx.figures / f"results_ic_by_walk{suffix}.png", ctx.caption("IC in each test block for HAR-RV, tuned LightGBM and attention + GRU."))
 
     doc.add_heading(f"{n + 3}. RQ1: does reading every contract predict better?", level=1)
-    doc.add_paragraph(f"Pre-registered answer: {'yes, attention + GRU beats every classical rung' if rq1['beats_every_rung'] else 'no, attention + GRU does not beat every classical rung'} at α = {alpha}.")
+    doc.add_paragraph(f"{summary['headline']} {summary['loss']}")
+    if summary["gex"]:
+        doc.add_paragraph(summary["gex"])
+    doc.add_paragraph(summary["rule"])
+    table(doc, ["Attention + GRU vs", "RMSE", "QLIKE", "IC gain (95% interval)", "Walks won", "Ranking (IC)", "Error (RMSE / QLIKE)"],
+          [[r["name"], f"{r['rmse_lower_pct']:+.1f}% lower" if r["rmse_lower_pct"] >= 0 else f"{-r['rmse_lower_pct']:.1f}% higher",
+            f"{r['qlike_lower_pct']:+.1f}% lower" if r["qlike_lower_pct"] >= 0 else f"{-r['qlike_lower_pct']:.1f}% higher",
+            f"{r['ic_diff']:+.3f} ({r['ci95'][0]:+.3f} to {r['ci95'][1]:+.3f})", f"{r['wins']}/{r['walks']}", r["ic_status"],
+            f"{r['rmse_status']} (p {fmt(r['dm_squared_p'])}) / {r['qlike_status']} (p {fmt(r['dm_qlike_p'])})"] for r in summary["rungs"]],
+          [1.2, 0.8, 0.8, 1.3, 0.6, 0.6, 1.6], size=8)
+    doc.add_paragraph("Ranking: ahead = 95% interval of the per-walk IC gain above 0, on par = interval includes 0. Error: Diebold–Mariano test on "
+                      f"daily losses at α = {alpha} (squared error for RMSE, QLIKE loss for QLIKE), unadjusted and supporting; the pre-registered "
+                      "rule is the IC test.")
     bullets(doc, [comparison_sentence(f"vs {LABELS[k.split('_vs_')[1]]}", c, alpha) for k, c in rq1["comparisons"].items()])
 
     doc.add_heading(f"{n + 4}. RQ2: what does each part contribute?", level=1)
@@ -227,22 +253,7 @@ def main() -> None:
     ])
 
     doc.add_heading(f"{section + 5}. Conclusion", level=1)
-    if rq1["beats_every_rung"]:
-        conclusion = ("Reading every contract beats the one-number summary and every classical model on the pre-registered test. RQ2 shows "
-                      "which part carries the gain.")
-    else:
-        conclusion = (f"On the pre-registered test, reading every contract does not beat every classical model: attention + GRU reaches a mean IC of "
-                      f"{fmt(ours.get('ic_mean_per_walk'))} against {fmt(har.get('ic_mean_per_walk'))} for HAR-RV. As planned, this is reported as the "
-                      "finding; RQ2 shows what each part of the model adds.")
-    losses = [r for r in ladder.values() if r.get("rmse_mean_per_walk") is not None]
-    best_rmse = min(losses, key=lambda r: r["rmse_mean_per_walk"])["model"]
-    best_qlike = min(losses, key=lambda r: r["qlike_mean_per_walk"])["model"]
-    if best_rmse == best_qlike == "attention_gru":
-        dm = rq1["comparisons"].get("attention_gru_vs_lightgbm", {})
-        conclusion += (f" On forecast error it is the best model: mean RMSE {fmt(ours.get('rmse_mean_per_walk'))} and QLIKE "
-                       f"{fmt(ours.get('qlike_mean_per_walk'))}, the lowest on the ladder; Diebold–Mariano p against tuned LightGBM is "
-                       f"{fmt(dm.get('dm_squared', {}).get('p_two_sided'))} (squared) and {fmt(dm.get('dm_qlike', {}).get('p_two_sided'))} (QLIKE). "
-                       "These loss tests support, but are not, the pre-registered IC rule.")
+    conclusion = f"{summary['headline']} {summary['loss']} " + (f"{summary['gex']} " if summary["gex"] else "") + summary["rule"]
     if summary_path.exists() and tag == "main":
         conclusion += " Exploratory follow-up (E1–E3): " + load(summary_path)["overall"]
     doc.add_paragraph(conclusion)
