@@ -1,10 +1,11 @@
 # NiftyGEX project status
 
-**Last updated:** 2026-11-16 (RQ1 reworded in every report, slide and the study guide; RMSE and QLIKE shown first; deck builder in scripts/)
+**Last updated:** 2026-11-17 (v3 checks reported, RQ1 wording updated everywhere, repository trimmed for review)
 **Plan of record:** proposal deck v9 as presented; v10 (`project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`) has the wording fixes (ladder steps 0–6, RQ1–RQ3)
 **Data config hash:** `1470391126a4` (all stage manifests in `outputs/manifests/`)
 **Eval config hash:** `552a3501001a` (forecast and development runs in `outputs/results/index.jsonl`)
-**Code:** main runs on commit `12b11a0` (`git_dirty = false`); exploratory Mac runs on `88e4bb3` (clean). Commits are made through GitHub Desktop.
+**Code:** main runs on `12b11a0`, E1–E3 on `60b6e18`, v3 checks on `56f802c`, clean-commit rerun on `d16f820` (all `git_dirty = false`). Commits are made through GitHub Desktop.
+**v2 / v3 exploratory config hashes:** `1c213d4b8aa3` / `ce47f4c521d1`
 **Tests:** 187 passed, 0 failed (`PYTHONPATH=src pytest -q` in the `niftygex` env)
 **Next milestone:** final presentation 2026-12-03 / 12-10
 
@@ -12,15 +13,14 @@ Status key: ✅ Completed · 🔄 In progress · ⏳ Pending · ⛔ Blocked · �
 
 ## Next session
 
-Goal: results done by mid-November. Pick up here, in order:
+All planned results are in: RQ1–RQ3, attention maps, E1–E3, the v3 checks and the clean-commit rerun. Remaining work is presentation and housekeeping:
 
-Exploratory E1–E3 are complete (`docs/findings_exploratory_summary.md`) and the final Word report is regenerated with them (section 16, separate from RQ1–RQ3).
+1. **Final presentation** (Dec 3 / 10): review the deck in `docs/deliverables/`, set the date, add the v3, limitations and next-steps slides (plan items D15–D23).
+2. **Final report:** add the v3 section, limitations and next steps (C9–C12), then regenerate.
+3. **G4:** approve marking the 2024-11-20 marker verified in `configs/regimes.yaml` (circular check done, no mismatch).
+4. Make the validation report's forward-quality table column order deterministic (values identical between runs).
 
-The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_reproducibility.md`), and the final deck is drafted (F8).
-
-1. **Final slides:** review `docs/deliverables/NiftyGEX_Final_Presentation.pptx`. Set the exact presentation date, and choose whether to hide proposal slides 6, 13 and 15 for time (25 visible slides ≈ 17 min). The builder is still in the session scratchpad; it can move to `scripts/` (needs python-pptx in the env).
-2. Make the validation report's forward-quality table column order deterministic (it changed between runs; values identical).
-3. Optional, not registered: an intraday hybrid (intraday HAR forecast as an input) to separate inputs from architecture in E3.
+The presentation-document scripts (final report, deck, study guide, walkthrough) are kept locally and gitignored; the findings pages under `docs/` remain the committed results.
 
 ## Known issues
 
@@ -35,7 +35,7 @@ The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_repr
 | 2026-10-08 | Proposal | ✅ Presented with deck v9 |
 | 2026-10-29 | Data pipeline, first baselines | ✅ The midterm Word report was generated (`docs/deliverables/`); its submission is not recorded here ❓ |
 | mid-November | Model results (own target) | ✅ Main run and RQ1–RQ3 done 4 Nov (`docs/findings_models.md`) |
-| November | Model, switch-off tests, rule-change tests | 🔄 Pre-registered tests done; ablations and attention maps to do |
+| November | Model, switch-off tests, rule-change tests | ✅ Pre-registered tests, ablations, attention maps, E1–E3 and v3 done |
 | 2026-12-03 / 12-10, 12-17 | Final presentation, code and report | ⏳ |
 
 ## Proposal map
@@ -91,7 +91,7 @@ The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_repr
 | C1 | Ladder runs | ✅ | Five models on 26 walks, same rows | `outputs/results/forecast_comparison.json` |
 | C2 | Report with figures | ✅ | Inputs, scoreboard, ladder IC, IC per walk, before/after, actual vs predicted | `docs/findings_forecast.md`, `outputs/reports/forecast_baselines.json`, `outputs/reports/figures/forecast_*.png` |
 
-### D. Token history and model inputs 🔄
+### D. Token history and model inputs ✅
 
 | ID | Task | Status | Summary |
 |---|---|---|---|
@@ -105,7 +105,7 @@ The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_repr
 |---|---|---|---|
 | E1 | PyTorch in the pinned env | ✅ | `pytorch=2.10.0` from conda-forge (the pip wheel's bundled OpenMP aborts next to LightGBM's) |
 | E2a | `nn/dataset.py` | ✅ | Tokens to `[days, L, N, 15]` tensors with padding mask (index −1 = 15:15), signed logs, a per-walk scaler fitted on training days, missing values as 0. On real data, window 12: 153 MB, 0.5 s, 1,794 of 1,800 days with 15:15 tokens; window 72: 941 MB Tests: `tests/test_nn_dataset.py` |
-| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | ✅ | Merged 3 Nov (PR #1, `cc18a49`), built to the interface in `docs/handoff_asad.md`. All 25 acceptance tests pass; attention + GRU has 112,257 parameters; a 2-walk real-data run trains cleanly (early stopping around epoch 13–15). Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
+| E2b | `nn/models.py` (DeepSets, Attention, AttentionGRU) | ✅ | Merged 3 Nov (PR #1, `cc18a49`), built to a fixed interface and acceptance tests. All 25 acceptance tests pass; attention + GRU has 112,257 parameters; a 2-walk real-data run trains cleanly (early stopping around epoch 13–15). Acceptance tests in `tests/test_nn_models.py` (skipped until the file exists). The spec was checked against a private reference implementation, which passes all 25 tests |
 | E2c | `nn/trainer.py` | ✅ | `NeuralForecaster` behind the Forecaster interface: per-walk scaler, Huber loss, AdamW, early stopping on the inner split, seeds 11/12/13, no refit (`neural.training`). Tests: `tests/test_nn_trainer.py` (stand-in model; learns a real signal through `run_walks`, scaler fitted on training rows only, reproducible seeds) |
 | E2d | Runner, RQ tests, results report | ✅ | `scripts/run_neural.py` (`--models`, `--window` and `--drop` for the window and field-drop ablations, `--save-attention` to store pooling weights per test day, `--walks` for development), `scripts/run_rq_tests.py` (RQ1–RQ3 as registered), `scripts/report_results.py` (`docs/findings_models.md` with figures). Checked end to end on a 2-walk development run with a stand-in model (`outputs/reports/findings_models_dev.md`, not a result) |
 | E3 | Sanity checks | ✅ | Model-level checks are part of the model acceptance tests. End to end on real data: in the development run, models stop at epochs 14–23 of 60, and the largest walk takes DeepSets 0.2 min, attention 0.7 min and attention + GRU 6.6 min (3 seeds, MPS) |
@@ -116,12 +116,12 @@ The clean-commit rerun reproduces the main pipeline exactly (`docs/findings_repr
 | ID | Task | Status | Summary |
 |---|---|---|---|
 | F1 | RQ1 | ✅ | Performs as well as the best classical models: on par with HAR, HAR + GEX and LightGBM on IC, far ahead of persistence; lowest RMSE and QLIKE of all models (QLIKE significantly below HAR + GEX and LightGBM). The pre-registered rule (significant IC gain over every rung) is not met |
-| F2 | RQ2 | 🔄 | Pre-registered pair done (no Holm rejection). Field drop done (exploratory): without `oi_change_since_previous_close_pct`, attention + GRU IC 0.459 vs 0.447 (+0.012, 95% CI −0.009 to +0.034, 15 of 26 walks), QLIKE 0.204 vs 0.189 (worse); the concentrated-attention days go from 4 to 0. Windows 24 and 72 run on Explorer with a fresh L = 12 reference (E2, section I) |
+| F2 | RQ2 | ✅ | Pre-registered pair done (no Holm rejection). Field drop done (exploratory): without `oi_change_since_previous_close_pct`, attention + GRU IC 0.459 vs 0.447 (+0.012, 95% CI −0.009 to +0.034, 15 of 26 walks), QLIKE 0.204 vs 0.189 (worse); the concentrated-attention days go from 4 to 0. Windows 24 and 72 ran on Explorer against a fresh L = 12 reference (E2, section I): no gain |
 | F3 | RQ3 | ✅ | Gain +0.003 (19 walks before) vs −0.014 (7 after); Welch p 0.74 |
 | F4 | Attention maps and case studies | ✅ | `scripts/report_attention.py` → `outputs/reports/attention.json`, 4 figures `attention_*.png`, `docs/findings_attention.md`; the final report's attention section reads them. Pooling weights are a near-plain average; the rare concentrated days (4 of 1,552) all lock onto the day's largest OI-change % |
 | F5 | Midterm progress report (Oct 29) | ✅ | Word report generated from the pipeline: `scripts/write_progress_report.py` writes `docs/deliverables/NiftyGEX_Midterm_Progress_Report.docx` (gitignored). The backup notebook `notebooks/02_pipeline_and_features.ipynb` follows one day through every stage |
 | F6 | Proposal deck v10 fixes | ✅ | `project_docs/Long_Attention_Short_Gamma_CS7150_Proposal_v10.pptx`: the slide 13 "Adjust" label; "several times" with 3–5 seeds; "If it wins, why?" and "Why this could beat"; the win rule matches RQ1 (every competitor, on average); "archive of NSE data"; 26 exams; backup titles and notes. Slide 11's charts are still the 14:00 snapshot from the earlier pipeline (no longer rebuilt; the notebook now shows 15:15) |
-| F7 | Final report, code and reproducibility pass | 🔄 | `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Regenerated 6 Nov with the attention maps, the Mac field-drop ablation and the exploratory E1–E3 section (the cluster's window runs are reported there, against a V100 reference). Clean-commit rerun done 10 Nov (`scripts/report_reproducibility.py` → `outputs/reports/reproducibility.json`, `docs/findings_reproducibility.md`): from `d16f820` into the `repro` profile, 2,367 data files identical and 1 within float rounding (2.2e-16), all manifest counts and flags equal, all 8 main runs' predictions identical, RQ tests identical; every rerun run records `git_dirty = false` |
+| F7 | Final report, code and reproducibility pass | 🔄 | The local `scripts/write_final_report.py` generates the Word final report from the results files: data, pipeline, models (with parameter counts), evaluation design, full ladder, RQ1–RQ3, ablations, attention maps, limitations, conclusion and reproducibility. Shared sections are in `src/niftygex_eval/report_sections.py` and `docx_report.py`. Regenerated 6 Nov with the attention maps, the Mac field-drop ablation and the exploratory E1–E3 section (the cluster's window runs are reported there, against a V100 reference). Clean-commit rerun done 10 Nov (`scripts/report_reproducibility.py` → `outputs/reports/reproducibility.json`, `docs/findings_reproducibility.md`): from `d16f820` into the `repro` profile, 2,367 data files identical and 1 within float rounding (2.2e-16), all manifest counts and flags equal, all 8 main runs' predictions identical, RQ tests identical; every rerun run records `git_dirty = false` |
 | F8 | Final presentation | 🔄 | `docs/deliverables/NiftyGEX_Final_Presentation.pptx` (gitignored): deck v10 extended with 10 results slides (scoreboard, RQ1–RQ3, attention maps, E1–E3, takeaways, deliverables) and 4 hidden backups; every number read from `outputs/results` and `outputs/reports`. Study guide for the Q&A: `docs/deliverables/NiftyGEX_Study_Guide.pdf`. Deck built by `scripts/build_final_deck.py` (recovered from the scratch builder; rebuilt the 10 Nov deck text-identically), with a new "What the scores mean" slide and RMSE/QLIKE-first scoreboard and Q1 slides. Awaiting review |
 
 ### I. Exploratory experiments E1–E3 ✅
@@ -157,7 +157,7 @@ Registered in `configs/eval_exploratory_v3.yaml` (hash `ce47f4c521d1`, commit `4
 | G1 | Daily India VIX, Apr–Jul 2026 | ⏳ | The daily file ends 2026-04-06; 60 trading days missing |
 | G2 | From the data source: missing OI (69 days), the truncated 2022-01-06 expiry, 8 missing spot days | ⏳ | Listed in `missing_data.md` |
 | G3 | Code reuse | ✅ | Reuse of pre-existing code confirmed with the co-owner; no attribution required for the academic project. |
-| G4 | Verify lot sizes, the 2024-11-20 marker and special sessions against NSE circulars | ⏳ | Marked VERIFY in `configs/regimes.yaml` |
+| G4 | Verify lot sizes, the 2024-11-20 marker and special sessions against NSE circulars | 🔄 | Checked 15 Nov against circular summaries: all five lot-size dates and the marker match; no RQ3 walk moves. Config change (mark verified) awaits approval; special sessions not yet checked |
 
 ### H. Earlier exploratory work (archived 2026-10-14)
 
@@ -172,6 +172,8 @@ Moved to `archive/` (code, tests, configs, docs) and `outputs/archive/` (summari
 | H5 | T1 pinning and T3 drift targets | Removed from the data layer on 2026-10-14: `archive/src/niftygex/`, `archive/docs/schema_t1_t3.md`, last outputs in `outputs/archive/data_targets/` |
 
 ## Key findings so far
+
+**Exploratory v3** (`docs/findings_exploratory_v3.md`; Holm across eight, 7 reject): HAR-IV beats HAR (+0.034 IC) and the chain correction still adds +0.047 on top of HAR-IV, so the chain carries information beyond implied volatility; the forecast average beats LightGBM (+0.055); E3 stays significantly worse with a longer training budget; HAR + GEX vs HAR +0.011 (not detectable); gains above about +0.06 IC over the classical models are ruled out for RQ1.
 
 **Exploratory E2** (`docs/findings_exploratory_history.md`): more intraday history tilts IC up slightly (L = 24 / 72: +0.012 / +0.016) and previous days' chains do not help; nothing survives Holm.
 
