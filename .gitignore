@@ -28,3 +28,19 @@ __pycache__/
 *.egg-info/
 .DS_Store
 data/
+
+# Kept locally, not part of the submitted repository: presentation-document generators and internal notes
+.private/
+scripts/write_final_report.py
+scripts/write_progress_report.py
+scripts/build_final_deck.py
+scripts/write_study_guide.py
+scripts/write_walkthrough.py
+src/niftygex_eval/report_sections.py
+src/niftygex_eval/docx_report.py
+src/niftygex_eval/study_sections.py
+tests/test_walkthrough.py
+docs/study_guide_generated.md
+docs/walkthrough.md
+docs/handoff_asad.md
+docs/audit.md

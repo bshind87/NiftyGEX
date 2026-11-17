@@ -1,6 +1,6 @@
 """Plain-language RQ1 summary and the ladder's step-by-step improvements, computed from the results files.
 
-Shared by scripts/report_results.py, scripts/write_final_report.py, the deck builder and the study guide, so every
+Shared by scripts/report_results.py and the presentation documents, so every
 document states RQ1 the same way. Each verdict follows a fixed rule from the test statistics (no hand-typed claim):
   IC (ranking, the pre-registered score): "ahead" if the 95% interval of the per-walk gain is above 0, "behind" if
   below 0, otherwise "on par".

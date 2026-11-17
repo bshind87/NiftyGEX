@@ -1,4 +1,4 @@
-"""Acceptance tests for the neural models (src/niftygex_eval/nn/models.py); see docs/handoff_asad.md.
+"""Acceptance tests for the neural models (src/niftygex_eval/nn/models.py).
 
 They use random tensors shaped like the real token history, so they need no project data. They are skipped
 until niftygex_eval.nn.models exists.

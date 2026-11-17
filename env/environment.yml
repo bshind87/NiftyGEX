@@ -25,7 +25,6 @@ dependencies:
   - pip
   - pip:
       - ruff==0.9.7
-      # Word progress report (scripts/write_progress_report.py)
+      # Word and PowerPoint documents (local document scripts)
       - python-docx==1.1.2
-      # Final presentation deck (scripts/build_final_deck.py)
       - python-pptx==1.0.2
